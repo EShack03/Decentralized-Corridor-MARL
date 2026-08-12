@@ -1,0 +1,39 @@
+# Reproduction results  2026-08-06 00:03:59.912611
+# EPISODES=100  weights=model_weights/ (obs16, single-corridor N5 training)
+
+===== single_N3  (scenario=working_three_phase_graph N=3 ep=120 episodes=100) =====
+Success rates mean 0.9533333333333334
+Num collisions 0.52
+Total Time Taken Median: 62.0
+Conformance C% Mean (higher=better):  99.80%
+
+===== single_N5  (scenario=working_three_phase_graph N=5 ep=120 episodes=100) =====
+Success rates mean 0.934
+Num collisions 0.83
+Total Time Taken Median: 86.0
+Conformance C% Mean (higher=better):  98.48%
+
+===== single_N10  (scenario=working_three_phase_graph N=10 ep=120 episodes=100) =====
+Success rates mean 0.869
+Num collisions 3.685
+Total Time Taken Median: 120.0
+Conformance C% Mean (higher=better):  96.10%
+
+===== seq_N5  (scenario=three_phase_graph_sequential N=5 ep=200 episodes=100) =====
+Success rates mean 0.906
+Num collisions 11.01
+Total Time Taken Median: 100.0
+Conformance C% Mean (higher=better):  99.35%
+
+===== seq_N10  (scenario=three_phase_graph_sequential N=10 ep=200 episodes=100) =====
+Success rates mean 0.885
+Num collisions 34.13
+Total Time Taken Median: 137.0
+Conformance C% Mean (higher=better):  96.40%
+
+===== merge_N5  (scenario=three_phase_graph_merge N=5 ep=200 episodes=100) =====
+Success rates mean 0.996
+Num collisions 5.405
+Total Time Taken Median: 96.0
+Conformance C% Mean (higher=better):  99.65%
+

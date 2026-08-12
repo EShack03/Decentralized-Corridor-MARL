@@ -1096,8 +1096,12 @@ class GMPERunner(Runner):
 		print("Total Dists Traveled Median:", total_dists_traveled_median)
 		print("Total Time Taken Median:", total_time_taken_median)
 
-		print("Conformance_percentage Mean:", conformance_percentage_mean)
-		print("Conformance_percentage median:", conformance_percentage_median)
+		# raw = violation fraction (steps an agent left the corridor after entering).
+		# Paper C% = 1 - violation, higher is better.
+		print("Conformance_percentage Mean (violation frac, raw):", conformance_percentage_mean)
+		print("Conformance_percentage median (violation frac, raw):", conformance_percentage_median)
+		print("Conformance C%% Mean (higher=better):  %.2f%%" % ((1.0 - conformance_percentage_mean) * 100.0))
+		print("Conformance C%% median (higher=better): %.2f%%" % ((1.0 - conformance_percentage_median) * 100.0))
 
 		print("Delta_space Mean:", delta_space_mean)
 		print("Delta_space median:", delta_space_median)
