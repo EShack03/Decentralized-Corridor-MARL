@@ -1,0 +1,115 @@
+# Reproduction results  2026-08-17 22:53:05.975431
+# EPISODES=100  weights=model_weights/ (obs16, single-corridor N5 training)
+
+===== seq_N2  (scenario=three_phase_graph_sequential N=2 ep=200 episodes=100) =====
+Success rates mean 0.79
+Num collisions 2.355
+Total Time Taken Median: 82.5
+Conformance C% Mean (higher=better):  100.00%
+Delta_space Mean: 0.005948301762736525
+Spacing violations Mean: 0.026413797442867214
+
+===== seq_N3  (scenario=three_phase_graph_sequential N=3 ep=200 episodes=100) =====
+Success rates mean 0.85
+Num collisions 6.275
+Total Time Taken Median: 88.0
+Conformance C% Mean (higher=better):  100.00%
+Delta_space Mean: 0.00964996644318793
+Spacing violations Mean: 0.05063036265744717
+
+===== seq_N4  (scenario=three_phase_graph_sequential N=4 ep=200 episodes=100) =====
+Success rates mean 0.85
+Num collisions 12.955
+Total Time Taken Median: 95.0
+Conformance C% Mean (higher=better):  99.56%
+Delta_space Mean: 0.020766058808536866
+Spacing violations Mean: 0.07740466078951613
+
+===== seq_N5  (scenario=three_phase_graph_sequential N=5 ep=200 episodes=100) =====
+Success rates mean 0.906
+Num collisions 11.01
+Total Time Taken Median: 100.0
+Conformance C% Mean (higher=better):  99.35%
+Delta_space Mean: 0.01420718133538893
+Spacing violations Mean: 0.05304258102457195
+
+===== seq_N6  (scenario=three_phase_graph_sequential N=6 ep=200 episodes=100) =====
+Success rates mean 0.9116666666666666
+Num collisions 16.79
+Total Time Taken Median: 108.5
+Conformance C% Mean (higher=better):  98.80%
+Delta_space Mean: 0.02332725295065717
+Spacing violations Mean: 0.06970457856788592
+
+===== seq_N8  (scenario=three_phase_graph_sequential N=8 ep=200 episodes=100) =====
+Success rates mean 0.885
+Num collisions 30.575
+Total Time Taken Median: 120.5
+Conformance C% Mean (higher=better):  97.13%
+Delta_space Mean: 0.04140597830138699
+Spacing violations Mean: 0.09362209067741072
+
+===== seq_N10  (scenario=three_phase_graph_sequential N=10 ep=200 episodes=100) =====
+Success rates mean 0.885
+Num collisions 34.13
+Total Time Taken Median: 137.0
+Conformance C% Mean (higher=better):  96.40%
+Delta_space Mean: 0.03922076851684796
+Spacing violations Mean: 0.07512581793583926
+
+===== single_N2  (scenario=working_three_phase_graph N=2 ep=120 episodes=100) =====
+Success rates mean 0.935
+Num collisions 0.0
+Total Time Taken Median: 53.0
+Conformance C% Mean (higher=better):  100.00%
+Delta_space Mean: 0.0
+Spacing violations Mean: 0.0
+
+===== single_N3  (scenario=working_three_phase_graph N=3 ep=120 episodes=100) =====
+Success rates mean 0.9533333333333334
+Num collisions 0.52
+Total Time Taken Median: 62.0
+Conformance C% Mean (higher=better):  99.80%
+Delta_space Mean: 0.0010295738270403674
+Spacing violations Mean: 0.008292929292929295
+
+===== single_N4  (scenario=working_three_phase_graph N=4 ep=120 episodes=100) =====
+Success rates mean 0.9275
+Num collisions 0.13
+Total Time Taken Median: 72.0
+Conformance C% Mean (higher=better):  98.76%
+Delta_space Mean: 0.0004538994288372776
+Spacing violations Mean: 0.0011250000000000001
+
+===== single_N5  (scenario=working_three_phase_graph N=5 ep=120 episodes=100) =====
+Success rates mean 0.934
+Num collisions 0.83
+Total Time Taken Median: 86.0
+Conformance C% Mean (higher=better):  98.48%
+Delta_space Mean: 0.0016890501207179687
+Spacing violations Mean: 0.007014009661835749
+
+===== single_N6  (scenario=working_three_phase_graph N=6 ep=120 episodes=100) =====
+Success rates mean 0.9066666666666666
+Num collisions 0.935
+Total Time Taken Median: 117.5
+Conformance C% Mean (higher=better):  96.50%
+Delta_space Mean: 0.002680034825206463
+Spacing violations Mean: 0.0047694582224633375
+
+===== single_N8  (scenario=working_three_phase_graph N=8 ep=120 episodes=100) =====
+Success rates mean 0.88375
+Num collisions 2.33
+Total Time Taken Median: 116.0
+Conformance C% Mean (higher=better):  96.48%
+Delta_space Mean: 0.004460365726267878
+Spacing violations Mean: 0.006541023228773515
+
+===== single_N10  (scenario=working_three_phase_graph N=10 ep=120 episodes=100) =====
+Success rates mean 0.869
+Num collisions 3.685
+Total Time Taken Median: 120.0
+Conformance C% Mean (higher=better):  96.10%
+Delta_space Mean: 0.007623358230755253
+Spacing violations Mean: 0.007594085220192032
+

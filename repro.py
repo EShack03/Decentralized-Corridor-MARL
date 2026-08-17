@@ -33,19 +33,31 @@ RUNTIME_DEPS = [
 
 # (tag, scenario_name, num_agents, world_size, episode_length)
 SCENARIOS = [
-    ("single_N3",  "working_three_phase_graph",     3,  5, 120),
-    ("single_N5",  "working_three_phase_graph",     5,  5, 120),
-    ("single_N10", "working_three_phase_graph",     10, 5, 120),
-    ("seq_N3",     "three_phase_graph_sequential",  3,  5, 200),
-    ("seq_N5",     "three_phase_graph_sequential",  5,  5, 200),
-    ("seq_N10",    "three_phase_graph_sequential",  10, 5, 200),
-    ("merge_N3",   "three_phase_graph_merge",       3,  5, 200),
-    ("merge_N5",   "three_phase_graph_merge",       5,  5, 200),
-    ("merge_N10",  "three_phase_graph_merge",       10, 5, 200),
+# --- Sequential (the problem scenario) — full density sweep ---
+    ("seq_N2",  "three_phase_graph_sequential",  2,  5, 200),
+    ("seq_N3",  "three_phase_graph_sequential",  3,  5, 200),
+    ("seq_N4",  "three_phase_graph_sequential",  4,  5, 200),
+    ("seq_N5",  "three_phase_graph_sequential",  5,  5, 200),
+    ("seq_N6",  "three_phase_graph_sequential",  6,  5, 200),
+    ("seq_N8",  "three_phase_graph_sequential",  8,  5, 200),
+    ("seq_N10", "three_phase_graph_sequential",  10, 5, 200),
+# --- Single (control baseline) — matched densities ---
+    ("single_N2",  "working_three_phase_graph",  2,  5, 120),
+    ("single_N3",  "working_three_phase_graph",  3,  5, 120),
+    ("single_N4",  "working_three_phase_graph",  4,  5, 120),
+    ("single_N5",  "working_three_phase_graph",  5,  5, 120),
+    ("single_N6",  "working_three_phase_graph",  6,  5, 120),
+    ("single_N8",  "working_three_phase_graph",  8,  5, 120),
+    ("single_N10", "working_three_phase_graph",  10, 5, 120),
+# --- Merge (currently unused) scenarios ---
+    #("merge_N3",   "three_phase_graph_merge",       3,  5, 200),
+    #("merge_N5",   "three_phase_graph_merge",       5,  5, 200),
+    #("merge_N10",  "three_phase_graph_merge",       10, 5, 200),
 ]
 
 METRIC_KEYS = ("Success rates mean", "Conformance C% Mean",
-               "Total Time Taken Median", "Num collisions")
+               "Total Time Taken Median", "Num collisions",
+               "Spacing violations Mean", "Delta_space Mean")
 
 
 # ---------- helpers ----------
