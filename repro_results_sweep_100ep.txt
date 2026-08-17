@@ -1,0 +1,111 @@
+# Reproduction results  2026-08-17 00:20:29.746778
+# EPISODES=100  weights=model_weights/ (obs16, single-corridor N5 training)
+
+===== single_N3  (scenario=working_three_phase_graph N=3 ep=120 episodes=100) =====
+Success rates mean 0.9533333333333334
+Num collisions 0.52
+Total Time Taken Median: 62.0
+Conformance C% Mean (higher=better):  99.80%
+
+===== single_N5  (scenario=working_three_phase_graph N=5 ep=120 episodes=100) =====
+Success rates mean 0.934
+Num collisions 0.83
+Total Time Taken Median: 86.0
+Conformance C% Mean (higher=better):  98.48%
+
+===== single_N10  (scenario=working_three_phase_graph N=10 ep=120 episodes=100) =====
+Success rates mean 0.869
+Num collisions 3.685
+Total Time Taken Median: 120.0
+Conformance C% Mean (higher=better):  96.10%
+
+===== seq_N3  (scenario=three_phase_graph_sequential N=3 ep=200 episodes=100) =====
+  (!! no metrics captured for this run; re-run it standalone to debug)
+conds
+Successful exits: 3/3 in 89.00 seconds
+Episode 87/100 - Throughput: 2.02 agents/minute
+Episode 88/100
+ total_time_taken[-1]: 91.00 seconds
+Successful exits: 3/3 in 91.00 seconds
+Episode 88/100 - Throughput: 1.98 agents/minute
+Episode 89/100
+ total_time_taken[-1]: 89.00 seconds
+Successful exits: 3/3 in 89.00 seconds
+Episode 89/100 - Throughput: 2.02 agents/minute
+Episode 90/100
+ total_time_taken[-1]: 89.00 seconds
+Successful exits: 3/3 in 89.00 seconds
+Episode 90/100 - Throughput: 2.02 agents/minute
+Episode 91/100
+ total_time_taken[-1]: 88.00 seconds
+Successful exits: 3/3 in 88.00 seconds
+Episode 91/100 - Throughput: 2.05 agents/minute
+Episode 92/100
+ total_time_taken[-1]: 90.00 seconds
+Successful exits: 3/3 in 90.00 seconds
+Episode 92/100 - Throughput: 2.00 agents/minute
+Episode 93/100
+ total_time_taken[-1]: 92.00 seconds
+Successful exits: 3/3 in 92.00 seconds
+Episode 93/100 - Throughput: 1.96 agents/minute
+Episode 94/100
+ total_time_taken[-1]: 90.00 seconds
+Successful exits: 3/3 in 90.00 seconds
+Episode 94/100 - Throughput: 2.00 agents/minute
+Episode 95/100
+ total_time_taken[-1]: 87.00 seconds
+Successful exits: 3/3 in 87.00 seconds
+Episode 95/100 - Throughput: 2.07 agents/minute
+Episode 96/100
+ total_time_taken[-1]: 85.00 seconds
+Successful exits: 3/3 in 85.00 seconds
+Episode 96/100 - Throughput: 2.12 agents/minute
+Episode 97/100
+ total_time_taken[-1]: 200.00 seconds
+Successful exits: 3/3 in 200.00 seconds
+Episode 97/100 - Throughput: 0.90 agents/minute
+Episode 98/100
+
+er.render(False)
+  File "C:\MEng_Project_Code\Decentralized-Corridor-MARL\.venv\Lib\site-packages\torch\utils\_contextlib.py", line 115, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MEng_Project_Code\Decentralized-Corridor-MARL\onpolicy\runner\shared\graph_mpe_runner.py", line 777, in render
+    image = envs.render('rgb_array')[0][0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MEng_Project_Code\Decentralized-Corridor-MARL\onpolicy\envs\env_wrappers.py", line 951, in render
+    return np.array([env.render(mode=mode) for env in self.envs])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+numpy.core._exceptions._ArrayMemoryError: Unable to allocate 1.40 MiB for an array with shape (1, 1, 700, 700, 3) and data type uint8
+
+
+===== seq_N5  (scenario=three_phase_graph_sequential N=5 ep=200 episodes=100) =====
+Success rates mean 0.906
+Num collisions 11.01
+Total Time Taken Median: 100.0
+Conformance C% Mean (higher=better):  99.35%
+
+===== seq_N10  (scenario=three_phase_graph_sequential N=10 ep=200 episodes=100) =====
+Success rates mean 0.885
+Num collisions 34.13
+Total Time Taken Median: 137.0
+Conformance C% Mean (higher=better):  96.40%
+
+===== merge_N3  (scenario=three_phase_graph_merge N=3 ep=200 episodes=100) =====
+Success rates mean 0.97
+Num collisions 2.06
+Total Time Taken Median: 77.0
+Conformance C% Mean (higher=better):  100.00%
+
+===== merge_N5  (scenario=three_phase_graph_merge N=5 ep=200 episodes=100) =====
+Success rates mean 0.996
+Num collisions 5.405
+Total Time Taken Median: 96.0
+Conformance C% Mean (higher=better):  99.65%
+
+===== merge_N10  (scenario=three_phase_graph_merge N=10 ep=200 episodes=100) =====
+Success rates mean 0.994
+Num collisions 4.025
+Total Time Taken Median: 144.0
+Conformance C% Mean (higher=better):  99.75%
+

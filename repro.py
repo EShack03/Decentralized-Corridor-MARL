@@ -36,9 +36,12 @@ SCENARIOS = [
     ("single_N3",  "working_three_phase_graph",     3,  5, 120),
     ("single_N5",  "working_three_phase_graph",     5,  5, 120),
     ("single_N10", "working_three_phase_graph",     10, 5, 120),
+    ("seq_N3",     "three_phase_graph_sequential",  3,  5, 200),
     ("seq_N5",     "three_phase_graph_sequential",  5,  5, 200),
     ("seq_N10",    "three_phase_graph_sequential",  10, 5, 200),
+    ("merge_N3",   "three_phase_graph_merge",       3,  5, 200),
     ("merge_N5",   "three_phase_graph_merge",       5,  5, 200),
+    ("merge_N10",  "three_phase_graph_merge",       10, 5, 200),
 ]
 
 METRIC_KEYS = ("Success rates mean", "Conformance C% Mean",
