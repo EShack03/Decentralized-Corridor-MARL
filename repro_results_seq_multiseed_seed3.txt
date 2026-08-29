@@ -1,0 +1,51 @@
+# Reproduction results  2026-08-28 23:39:22.406431
+# EPISODES=100  weights=model_weights/ (obs16, single-corridor N5 training)
+
+===== seq_N3  (scenario=three_phase_graph_sequential N=3 ep=200 episodes=100) =====
+Success rates mean 0.8866666666666667
+Num collisions 3.835
+Total Time Taken Median: 88.0
+Conformance C% Mean (higher=better):  100.00%
+Delta_space Mean: 0.005996037139824686
+Spacing violations Mean: 0.030802731962686587
+
+===== seq_N4  (scenario=three_phase_graph_sequential N=4 ep=200 episodes=100) =====
+Success rates mean 0.89
+Num collisions 7.56
+Total Time Taken Median: 94.0
+Conformance C% Mean (higher=better):  99.86%
+Delta_space Mean: 0.00962781916842726
+Spacing violations Mean: 0.042998387366084474
+
+===== seq_N5  (scenario=three_phase_graph_sequential N=5 ep=200 episodes=100) =====
+Success rates mean 0.888
+Num collisions 13.325
+Total Time Taken Median: 100.0
+Conformance C% Mean (higher=better):  99.03%
+Delta_space Mean: 0.020406802699464443
+Spacing violations Mean: 0.06318920114359707
+
+===== seq_N6  (scenario=three_phase_graph_sequential N=6 ep=200 episodes=100) =====
+Success rates mean 0.9033333333333333
+Num collisions 13.61
+Total Time Taken Median: 107.5
+Conformance C% Mean (higher=better):  98.74%
+Delta_space Mean: 0.024069566988166136
+Spacing violations Mean: 0.05011400151339175
+
+===== seq_N8  (scenario=three_phase_graph_sequential N=8 ep=200 episodes=100) =====
+Success rates mean 0.91625
+Num collisions 25.82
+Total Time Taken Median: 119.5
+Conformance C% Mean (higher=better):  97.78%
+Delta_space Mean: 0.03711252596407727
+Spacing violations Mean: 0.07766996507272328
+
+===== seq_N10  (scenario=three_phase_graph_sequential N=10 ep=200 episodes=100) =====
+Success rates mean 0.861
+Num collisions 30.86
+Total Time Taken Median: 135.5
+Conformance C% Mean (higher=better):  95.82%
+Delta_space Mean: 0.042136541296389725
+Spacing violations Mean: 0.06870387945085674
+

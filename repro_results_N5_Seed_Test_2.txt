@@ -1,0 +1,11 @@
+# Reproduction results  2026-08-28 22:20:08.275378
+# EPISODES=100  weights=model_weights/ (obs16, single-corridor N5 training)
+
+===== seq_N5  (scenario=three_phase_graph_sequential N=5 ep=200 episodes=100) =====
+Success rates mean 0.882
+Num collisions 12.045
+Total Time Taken Median: 102.0
+Conformance C% Mean (higher=better):  99.35%
+Delta_space Mean: 0.01669439157684965
+Spacing violations Mean: 0.05373252556355223
+

@@ -1,0 +1,102 @@
+# Reproduction results  2026-08-28 22:31:35.525936
+# EPISODES=100  weights=model_weights/ (obs16, single-corridor N5 training)
+
+===== seq_N3  (scenario=three_phase_graph_sequential N=3 ep=200 episodes=100) =====
+Success rates mean 0.85
+Num collisions 6.275
+Total Time Taken Median: 88.0
+Conformance C% Mean (higher=better):  100.00%
+Delta_space Mean: 0.00964996644318793
+Spacing violations Mean: 0.05063036265744717
+
+===== seq_N4  (scenario=three_phase_graph_sequential N=4 ep=200 episodes=100) =====
+Success rates mean 0.85
+Num collisions 12.955
+Total Time Taken Median: 95.0
+Conformance C% Mean (higher=better):  99.56%
+Delta_space Mean: 0.020766058808536866
+Spacing violations Mean: 0.07740466078951613
+
+===== seq_N5  (scenario=three_phase_graph_sequential N=5 ep=200 episodes=100) =====
+Success rates mean 0.906
+Num collisions 11.01
+Total Time Taken Median: 100.0
+Conformance C% Mean (higher=better):  99.35%
+Delta_space Mean: 0.01420718133538893
+Spacing violations Mean: 0.05304258102457195
+
+===== seq_N6  (scenario=three_phase_graph_sequential N=6 ep=200 episodes=100) =====
+Success rates mean 0.9116666666666666
+Num collisions 16.79
+Total Time Taken Median: 108.5
+Conformance C% Mean (higher=better):  98.80%
+Delta_space Mean: 0.02332725295065717
+Spacing violations Mean: 0.06970457856788592
+
+===== seq_N8  (scenario=three_phase_graph_sequential N=8 ep=200 episodes=100) =====
+  (!! no metrics captured for this run; re-run it standalone to debug)
+its: 8/8 in 126.00 seconds
+Episode 68/100 - Throughput: 3.81 agents/minute
+Episode 69/100
+ total_time_taken[-1]: 122.00 seconds
+Successful exits: 8/8 in 122.00 seconds
+Episode 69/100 - Throughput: 3.93 agents/minute
+Episode 70/100
+ total_time_taken[-1]: 139.00 seconds
+Successful exits: 8/8 in 139.00 seconds
+Episode 70/100 - Throughput: 3.45 agents/minute
+Episode 71/100
+ total_time_taken[-1]: 117.00 seconds
+Successful exits: 8/8 in 117.00 seconds
+Episode 71/100 - Throughput: 4.10 agents/minute
+Episode 72/100
+ total_time_taken[-1]: 114.00 seconds
+Successful exits: 8/8 in 114.00 seconds
+Episode 72/100 - Throughput: 4.21 agents/minute
+Episode 73/100
+ total_time_taken[-1]: 113.00 seconds
+Successful exits: 8/8 in 113.00 seconds
+Episode 73/100 - Throughput: 4.25 agents/minute
+Episode 74/100
+ total_time_taken[-1]: 118.00 seconds
+Successful exits: 8/8 in 118.00 seconds
+Episode 74/100 - Throughput: 4.07 agents/minute
+Episode 75/100
+ total_time_taken[-1]: 200.00 seconds
+Successful exits: 8/8 in 200.00 seconds
+Episode 75/100 - Throughput: 2.40 agents/minute
+Episode 76/100
+ total_time_taken[-1]: 113.00 seconds
+Successful exits: 8/8 in 113.00 seconds
+Episode 76/100 - Throughput: 4.25 agents/minute
+Episode 77/100
+ total_time_taken[-1]: 119.00 seconds
+Successful exits: 8/8 in 119.00 seconds
+Episode 77/100 - Throughput: 4.03 agents/minute
+Episode 78/100
+ total_time_taken[-1]: 115.00 seconds
+Successful exits: 8/8 in 115.00 seconds
+Episode 78/100 - Throughput: 4.17 agents/minute
+Episode 79/100
+
+er.render(False)
+  File "C:\MEng_Project_Code\Decentralized-Corridor-MARL\.venv\Lib\site-packages\torch\utils\_contextlib.py", line 115, in decorate_context
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MEng_Project_Code\Decentralized-Corridor-MARL\onpolicy\runner\shared\graph_mpe_runner.py", line 777, in render
+    image = envs.render('rgb_array')[0][0]
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\MEng_Project_Code\Decentralized-Corridor-MARL\onpolicy\envs\env_wrappers.py", line 951, in render
+    return np.array([env.render(mode=mode) for env in self.envs])
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+numpy.core._exceptions._ArrayMemoryError: Unable to allocate 1.40 MiB for an array with shape (1, 1, 700, 700, 3) and data type uint8
+
+
+===== seq_N10  (scenario=three_phase_graph_sequential N=10 ep=200 episodes=100) =====
+Success rates mean 0.885
+Num collisions 34.13
+Total Time Taken Median: 137.0
+Conformance C% Mean (higher=better):  96.40%
+Delta_space Mean: 0.03922076851684796
+Spacing violations Mean: 0.07512581793583926
+

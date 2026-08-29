@@ -34,7 +34,7 @@ RUNTIME_DEPS = [
 # (tag, scenario_name, num_agents, world_size, episode_length)
 SCENARIOS = [
 # --- Sequential (the problem scenario) — full density sweep ---
-    ("seq_N2",  "three_phase_graph_sequential",  2,  5, 200),
+    #("seq_N2",  "three_phase_graph_sequential",  2,  5, 200),
     ("seq_N3",  "three_phase_graph_sequential",  3,  5, 200),
     ("seq_N4",  "three_phase_graph_sequential",  4,  5, 200),
     ("seq_N5",  "three_phase_graph_sequential",  5,  5, 200),
@@ -42,13 +42,13 @@ SCENARIOS = [
     ("seq_N8",  "three_phase_graph_sequential",  8,  5, 200),
     ("seq_N10", "three_phase_graph_sequential",  10, 5, 200),
 # --- Single (control baseline) — matched densities ---
-    ("single_N2",  "working_three_phase_graph",  2,  5, 120),
-    ("single_N3",  "working_three_phase_graph",  3,  5, 120),
-    ("single_N4",  "working_three_phase_graph",  4,  5, 120),
-    ("single_N5",  "working_three_phase_graph",  5,  5, 120),
-    ("single_N6",  "working_three_phase_graph",  6,  5, 120),
-    ("single_N8",  "working_three_phase_graph",  8,  5, 120),
-    ("single_N10", "working_three_phase_graph",  10, 5, 120),
+    #("single_N2",  "working_three_phase_graph",  2,  5, 120),
+    #("single_N3",  "working_three_phase_graph",  3,  5, 120),
+    #("single_N4",  "working_three_phase_graph",  4,  5, 120),
+    #("single_N5",  "working_three_phase_graph",  5,  5, 120),
+    #("single_N6",  "working_three_phase_graph",  6,  5, 120),
+    #("single_N8",  "working_three_phase_graph",  8,  5, 120),
+    #("single_N10", "working_three_phase_graph",  10, 5, 120),
 # --- Merge (currently unused) scenarios ---
     #("merge_N3",   "three_phase_graph_merge",       3,  5, 200),
     #("merge_N5",   "three_phase_graph_merge",       5,  5, 200),
@@ -120,7 +120,7 @@ def verify_gpu(py):
          "'| cap', torch.cuda.get_device_capability())"])
 
 
-def eval_cmd(py, tag, scenario, n, world, eplen, episodes, ifi="0.0"):
+def eval_cmd(py, tag, scenario, n, world, eplen, episodes, ifi="0.0", seed="1"):
     return [
         py, "-u", "onpolicy/scripts/eval_mpe.py", "--model_dir", "model_weights",
         "--scenario_name", scenario, "--dynamics_type", "air_taxi",
@@ -128,7 +128,7 @@ def eval_cmd(py, tag, scenario, n, world, eplen, episodes, ifi="0.0"):
         "--world_size", world, "--episode_length", eplen,
         "--formation_type", "point", "--total_actions", "9", "--zeroshift", "10",
         "--render_episodes", episodes, "--use_dones", "False",
-        "--ifi", ifi, "--model_name", tag,
+        "--ifi", ifi, "--model_name", tag, "--seed", str(seed),
     ]
 
 
@@ -247,6 +247,7 @@ def cmd_eval(args):
     ensure_repo_root()
     py = need_venv()
     episodes = str(args.episodes)
+    seed = str(args.seed)
     ts = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
     out_path = Path(f"repro_results_{ts}.txt")
 
@@ -259,7 +260,7 @@ def cmd_eval(args):
             title = f"===== {tag}  (scenario={scenario} N={n} ep={eplen} episodes={episodes}) ====="
             print(title, flush=True)
             fout.write(title + "\n")
-            cmd = eval_cmd(py, tag, scenario, str(n), str(world), str(eplen), episodes)
+            cmd = eval_cmd(py, tag, scenario, str(n), str(world), str(eplen), episodes, seed=seed)
             res = subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
             hits = [ln for ln in res.stdout.splitlines()
                     if any(k in ln for k in METRIC_KEYS)]
@@ -300,6 +301,8 @@ def main():
     e = sub.add_parser("eval", help="reproduce all evaluable scenarios")
     e.add_argument("--episodes", type=int, default=100,
                    help="episodes per scenario (default 100; use 30 for a quick smoke test)")
+    e.add_argument("--seed", type=int, default=1,
+                   help="random seed for evaluation")
     e.set_defaults(func=cmd_eval)
 
     args = p.parse_args()
