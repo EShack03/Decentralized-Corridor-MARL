@@ -7,6 +7,7 @@ from typing import Tuple
 import torch
 from onpolicy.runner.shared.base_runner import Runner
 from onpolicy.runner.shared.eval_metrics_logger import create_logger
+from collections import deque
 import wandb
 import imageio
 import csv
@@ -17,6 +18,59 @@ import os
 def _t2n(x):
 	return x.detach().cpu().numpy()
 
+
+def _cbf_trace_rows(world, scen, episode, step, writer, sep=0.1524):
+	"""Diagnostic logger: one row per agent per step, for locating where the
+	sequential-corridor conflict happens relative to physical corridor
+	membership. Columns: current_tube (assigned corridor), s_along (progress
+	along that tube), in_tube (geometric containment, 0 in the junction gap),
+	min_sep / los (nearest neighbour + LoS flag, sep in km = 500 ft), and the
+	nearest in-line leader with the heading-difference the gate keys on.
+	Side-effect-free; wrapped so it can never break an eval run."""
+	try:
+		ags = world.agents
+		P = np.array([[a.state.p_pos[0], a.state.p_pos[1]] for a in ags], dtype=np.float64)
+		TH = np.array([float(a.state.theta) for a in ags], dtype=np.float64)
+		SP = np.array([float(a.state.speed) for a in ags], dtype=np.float64)
+		tp = getattr(world, "tube_params", None)
+		ct = getattr(scen, "current_tube", None)
+		na = len(ags)
+		for i in range(na):
+			min_sep, lead_id, lead_d, hd = np.inf, -1, np.inf, float("nan")
+			hvec = np.array([np.cos(TH[i]), np.sin(TH[i])])
+			for j in range(na):
+				if j == i:
+					continue
+				rel = P[j] - P[i]
+				d = float(np.linalg.norm(rel))
+				if d < min_sep:
+					min_sep = d
+				if float(np.dot(rel, hvec)) > 0.0 and d < lead_d:   # j is ahead of i
+					lead_d, lead_id = d, j
+					dh = TH[j] - TH[i]
+					hd = abs((dh + np.pi) % (2.0 * np.pi) - np.pi)  # wrap to [0, pi]
+			tb = int(ct[i]) if ct is not None else -1
+			s, in_tube = float("nan"), -1
+			if tp is not None and 0 <= tb < len(tp):                # geometric in_tube
+				en = np.asarray(tp[tb]["entrance"], dtype=np.float64)
+				ex = np.asarray(tp[tb]["exit"], dtype=np.float64)
+				hw = float(tp[tb]["half_width"])
+				ax = ex - en
+				L = float(np.linalg.norm(ax)) + 1e-9
+				e = ax / L
+				n = np.array([-e[1], e[0]])
+				s = float(np.dot(P[i] - en, e))
+				lat = float(np.dot(P[i] - en, n))
+				in_tube = int((-1e-6 <= s <= L + 1e-6) and (abs(lat) <= hw))
+			writer.writerow([episode, step, i, f"{P[i, 0]:.4f}", f"{P[i, 1]:.4f}",
+				f"{TH[i]:.4f}", f"{SP[i]:.4f}", tb, f"{s:.4f}", in_tube,
+				f"{min_sep:.4f}", int(min_sep < sep), lead_id,
+				f"{lead_d:.4f}" if np.isfinite(lead_d) else "nan",
+				f"{hd:.4f}" if np.isfinite(hd) else "nan"])
+	except Exception:
+		pass
+
+
 class GMPERunner(Runner):
 	"""
 		Runner class to perform training, evaluation and data 
@@ -26,6 +80,62 @@ class GMPERunner(Runner):
 	def __init__(self, config):
 		super(GMPERunner, self).__init__(config)
 		self.num_total_episode = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+
+		# ---- Stage-3B Part B: barrier reward shaping ----
+		# The policy is taught to keep clear of the unsafe set by subtracting a
+		# penalty  lambda * relu(margin - h_ego)  from the environment reward of
+		# every agent-step before it enters the buffer, where h_ego is the value
+		# of the (co-learning) barrier at that agent's current ego-graph. No
+		# safety filter runs in the loop here on purpose: Stage 3A showed that a
+		# filter active during training lets the policy offload safety onto it,
+		# so 3B removes the crutch and makes the policy itself responsible.
+		self.cbf_reward_coef = getattr(self.all_args, "cbf_reward_coef", 0.0)
+		self.cbf_reward_margin = getattr(self.all_args, "cbf_reward_margin", 2.0)
+		self._cbf_shape_on = (self.cbf_reward_coef > 0.0 and
+							getattr(self.trainer, "cbf_barrier", None) is not None)
+		self._cbf_log_ctr = 0
+		if self._cbf_shape_on:
+			print(f"[3B] reward shaping ON: coef={self.cbf_reward_coef} "
+				f"margin={self.cbf_reward_margin}")
+
+		# The ego-frame safety filter (EgoCBFFilter) is attached here by
+		# train_mpe.py AFTER the runner is built, so it can share this runner's
+		# trainer.cbf_barrier instance (the barrier the filter uses is then the
+		# one that keeps learning). None => no filter in the loop (baseline / 3A
+		# with no filter). See collect_with_mask for where it is applied.
+		self.cbf_filter = None
+		self._cbf_filter_log_ctr = 0
+
+	def _cbf_shape_rewards(self, rewards, node_obs, adj, agent_id):
+		"""Subtract the barrier proximity penalty from per-agent rewards.
+		rewards: (n_rollout_threads, num_agents) as returned by env.step
+		(i.e. BEFORE the [:, :, np.newaxis] expansion). Returns same shape.
+		Uses the trainer's live barrier so the penalty tracks the barrier as it
+		co-adapts. Safe (h large positive) -> zero penalty; as h falls below the
+		margin the penalty grows, hitting hardest as the agent nears h=0."""
+		if not self._cbf_shape_on:
+			return rewards
+		nt, na = self.n_rollout_threads, self.num_agents
+		no = np.concatenate(node_obs)          # (nt*na, n_nodes, node_feat)
+		ad = np.concatenate(adj)               # (nt*na, n_nodes, n_nodes)
+		ego = np.concatenate(agent_id).reshape(-1).astype(np.int64)  # (nt*na,)
+		with torch.no_grad():
+			self.trainer.cbf_barrier.eval()
+			no_t = torch.as_tensor(no, dtype=torch.float32, device=self.device)
+			ad_t = torch.as_tensor(ad, dtype=torch.float32, device=self.device)
+			ego_t = torch.as_tensor(ego, device=self.device)
+			h = self.trainer.cbf_barrier(no_t, ad_t)           # (nt*na, n_nodes)
+			ar = torch.arange(h.shape[0], device=self.device)
+			h_ego = h[ar, ego_t]                               # (nt*na,)
+			pen = self.cbf_reward_coef * torch.relu(
+				self.cbf_reward_margin - h_ego)                # (nt*na,)
+			pen_np = pen.detach().cpu().numpy().reshape(nt, na)
+			self._cbf_log_ctr += 1
+			if self._cbf_log_ctr % 200 == 1:
+				print(f"[CBF-shape] mean h_ego={float(h_ego.mean()):.3f} "
+					f"mean pen={float(pen.mean()):.4f} "
+					f"frac_penalised={float((pen > 0).float().mean()):.3f}")
+		return rewards - pen_np
 
 	def run(self):
 		self.warmup()
@@ -80,10 +190,12 @@ class GMPERunner(Runner):
 
 					available_actions = np.ones((self.n_rollout_threads, self.num_agents, self.envs.action_space[0].n), dtype=np.float32)
 
+					# Stage-3B: barrier reward shaping (no-op unless enabled)
+					rewards = self._cbf_shape_rewards(rewards, node_obs, adj, agent_id)
 					# # For no-Collab uncomment the line
 					rewards = rewards[:,:, np.newaxis]
-					data = (obs, agent_id, node_obs, adj, agent_id, rewards, 
-							dones, infos, values, actions, action_log_probs, 
+					data = (obs, agent_id, node_obs, adj, agent_id, rewards,
+							dones, infos, values, actions, action_log_probs,
 							rnn_states, rnn_states_critic, available_actions)
 
 					# insert data into buffer
@@ -123,10 +235,12 @@ class GMPERunner(Runner):
 					self.active_masks[dones_env] = np.ones((((dones_env).astype(int)).sum(), 
 											self.num_agents, 1), dtype=np.float32)
 
+					# Stage-3B: barrier reward shaping (no-op unless enabled)
+					rewards = self._cbf_shape_rewards(rewards, node_obs, adj, agent_id)
 					# # For no-Collab uncomment the line
 					rewards = rewards[:,:, np.newaxis]
-					data = (obs, agent_id, node_obs, adj, agent_id, rewards, 
-							dones, infos, values, actions, action_log_probs, 
+					data = (obs, agent_id, node_obs, adj, agent_id, rewards,
+							dones, infos, values, actions, action_log_probs,
 							rnn_states, rnn_states_critic, available_actions)
 					# insert data into buffer
 					self.insert(data, active_agents=self.active_agents,active_masks=self.active_masks,finished=finished)
@@ -161,6 +275,8 @@ class GMPERunner(Runner):
 				print(f"Average episode rewards is {avg_ep_rew:.3f} \t"
 					f"Total timesteps: {total_num_steps} \t "
 					f"Percentage complete {total_num_steps / self.num_env_steps * 100:.3f}")
+				if 'cbf_loss' in train_infos:
+					print(f"[3B] barrier CBF loss: {train_infos['cbf_loss']:.5f}")
 				for agent_id in range(self.num_agents):
 					str1 = f'agent{agent_id}/distance_mean'
 					str2 = f'agent{agent_id}/distance_variance'
@@ -268,8 +384,34 @@ class GMPERunner(Runner):
 					avail_actions_list.append(available_actions)
 					
 			envs_aa.append(avail_actions_list)
-					
+
 		aa= np.asarray(envs_aa)
+
+		# ---- Stage-3B: ego-frame CBF safety filter in the training rollout ----
+		# Same shielded-RL setup as 3A (filter masks unsafe primitives during
+		# training); 3B differs in that the barrier is co-learning and the policy
+		# also gets a reward-shaping safety signal. Applied to ACTIVE agents only
+		# (finished agents keep their stop-only mask). The least-unsafe fallback
+		# guarantees every active row keeps >=1 primitive, so no all-zero masks.
+		if self.cbf_filter is not None:
+			node_obs_s = np.concatenate(self.buffer.node_obs[step])
+			adj_s      = np.concatenate(self.buffer.adj[step])
+			obs_s      = np.concatenate(self.buffer.obs[step])
+			agent_id_s = np.concatenate(self.buffer.agent_id[step])
+			avail_f, no_safe = self.cbf_filter.masks(node_obs_s, adj_s, obs_s, agent_id_s)
+			avail_f = np.asarray(avail_f, dtype=np.float32).reshape(
+				self.n_rollout_threads, self.num_agents, -1)
+			for e in range(self.n_rollout_threads):
+				for a in range(self.all_args.num_agents):
+					if a not in finished[e]:
+						aa[e, a] = avail_f[e, a]
+			flag = True   # store the filtered availability in the buffer
+			self._cbf_filter_log_ctr += 1
+			if self._cbf_filter_log_ctr % 200 == 1:
+				blocked = float((avail_f == 0).sum(axis=-1).mean())
+				ns = float(np.asarray(no_safe).mean())
+				print(f"[CBF] filter active: mean blocked={blocked:.2f}/"
+					f"{self.envs.action_space[0].n} no_safe_rate={ns:.3f}")
 
 		value, action, action_log_prob, rnn_states, rnn_states_critic \
 			= self.trainer.policy.get_actions(
@@ -547,6 +689,13 @@ class GMPERunner(Runner):
 		# num_total_episode = int(self.all_args.num_env_steps) // self.all_args.episode_length // self.all_args.n_rollout_threads
 
 		obs, agent_id, node_obs, adj = envs.reset(self.all_args.render_episodes)
+		# === CBF eval metrics (added) — resolve the scenario once for the
+		# in/outside-corridor split (side-effect-free is_in_tube query). ===
+		self.cbf_eval_scen = None
+		if getattr(self, "cbf_eval", None) is not None:
+			import onpolicy.algorithms.utils.cbf_eval_metrics as _cbfm
+			self.cbf_eval_scen = _cbfm.get_scenario(envs)
+		# === end CBF eval metrics ===
 		with open(str(self.all_args.model_dir)+'/'+str(self.all_args.model_name)+'_'+str(self.all_args.formation_type)+'_results_collect_oct.csv', 'a', newline="") as f_traj:
 			# create the csv writer
 			writer = csv.writer(f_traj)
@@ -561,6 +710,14 @@ class GMPERunner(Runner):
 			print(f"Episode {episode+1}/{self.all_args.render_episodes}")
 			# Track exit times for throughput calculation
 			agent_exit_times = [-1.0] * self.num_agents  # -1 = not exited yet
+
+			# Rung-3 stall signal: per-agent along-corridor progress history (reset per episode)
+			_stall_on = bool(getattr(getattr(self, "cbf_eval_filter", None), "adaptive_stall", False))
+			if _stall_on:
+				_stall_W = int(getattr(self.all_args, "cbf_stall_window", 15))
+				_stall_T = float(getattr(self.all_args, "cbf_stall_thresh", 0.15))
+				_stall_hist = [deque(maxlen=_stall_W) for _ in range(self.num_agents)]
+				_stall_last_tube = [-1 for _ in range(self.num_agents)]
 
 			# Trajectory logging (if enabled)
 			if self.all_args.save_trajectories:
@@ -595,11 +752,31 @@ class GMPERunner(Runner):
 			available_actions = np.ones((self.num_agents, self.envs.action_space[0].n), 
 										dtype=np.float32)
 			episode_rewards = []
-			
+			# === CBF eval metrics (added) — start this episode's severity accumulator
+			if getattr(self, "cbf_eval", None) is not None:
+				self.cbf_eval.begin_episode()
+			# === end CBF eval metrics ===
+
+			# === CBF trace (diagnostic) — set CBF_TRACE=1 to log in_tube vs conflict.
+			# Writes <model_dir>/cbf_trace_ep<episode>.csv; off by default. ===
+			_trace_on = bool(os.environ.get("CBF_TRACE"))
+			if _trace_on:
+				_trace_f = open(f"{self.all_args.model_dir}/cbf_trace_ep{episode}.csv", "w", newline="")
+				_trace_w = csv.writer(_trace_f)
+				_trace_w.writerow(["ep", "step", "agent", "x", "y", "theta", "speed",
+					"current_tube", "s_along", "in_tube", "min_sep", "los",
+					"leader_id", "leader_dist", "heading_diff"])
+			# === end CBF trace init ===
+
 			for step in range(self.episode_length):
 				# print("\nstep",step)
 				# input("Press Enter to continue...")
 				calc_start = time.time()
+				# === CBF trace (diagnostic) — one row per agent this step ===
+				if _trace_on:
+					_cbf_trace_rows(envs.envs[0].world, self.cbf_eval_scen, episode, step, _trace_w)
+					_trace_f.flush()
+				# === end CBF trace ===
 
 				zero_masks = masks[0] == 0
 				if 	not zero_masks.all():
@@ -679,6 +856,71 @@ class GMPERunner(Runner):
 				else:
 					# --- Single-policy (original path) ---
 					self.trainer.prep_rollout()
+					# === CBF eval filter (added) — mask unsafe primitives before the
+					# policy acts. Runs ONLY when a world-frame filter is attached
+					# (eval_mpe.py sets self.cbf_eval_filter for filtered runs); with
+					# no filter this block is skipped entirely, so the baseline is
+					# byte-identical to the original. ===
+					if getattr(self, "cbf_eval_filter", None) is not None:
+						_wa = envs.envs[0].world.agents
+						_wstate = np.array(
+							[[a.state.p_pos[0], a.state.p_pos[1],
+							  float(a.state.theta), float(a.state.speed)] for a in _wa],
+							dtype=np.float32)[None]                      # (1, na, 4)
+						_wgoals = None
+						_scen = getattr(self, "cbf_eval_scen", None)
+						_world_cbf = envs.envs[0].world
+						if _scen is not None and hasattr(_scen, "current_tube") and hasattr(_world_cbf, "tube_params"):
+							try:
+								_tp, _ct = _world_cbf.tube_params, _scen.current_tube
+								_wgoals = np.array(
+									[[a.state.p_pos[0] + float(_tp[int(_ct[a.id])]['e'][0]),
+									  a.state.p_pos[1] + float(_tp[int(_ct[a.id])]['e'][1])]
+									 for a in _wa], dtype=np.float32)[None]   # (1, na, 2) path tangent
+							except Exception:
+								_wgoals = None
+						_wstall = None
+						if _stall_on and _scen is not None and hasattr(_scen, "current_tube") and hasattr(_scen, "_tube_coords"):
+							try:
+								_flags = np.zeros(len(_wa), dtype=bool)
+								for _ag in _wa:
+									_i = int(_ag.id)
+									_tb = int(_scen.current_tube[_i])
+									if _tb != _stall_last_tube[_i]:
+										_stall_hist[_i].clear()
+										_stall_last_tube[_i] = _tb
+									_s = float(_scen._tube_coords(_world_cbf, _ag.state.p_pos, _tb)[0])
+									_stall_hist[_i].append(_s)
+									_h = _stall_hist[_i]
+									if len(_h) == _h.maxlen:
+										_flags[_i] = (_h[-1] - _h[0]) < _stall_T
+								_wstall = _flags[None]   # (1, na) bool
+							except Exception:
+								_wstall = None
+						# per-agent in-corridor flag for the junction gap guard (uses the
+						# scenario's own is_in_tube -- the SAME test as the in/out metric).
+						_win_tube = None
+						try:
+							import onpolicy.algorithms.utils.cbf_eval_metrics as _cbfm
+							_inc = _cbfm.in_corridor_flags(_scen, _world_cbf, _wa)
+							if _inc is not None:
+								_win_tube = np.asarray(_inc, dtype=bool)[None]   # (1, na)
+						except Exception:
+							_win_tube = None
+						_mask, _no_safe = self.cbf_eval_filter.masks_for_threads(
+							np.concatenate(node_obs)[None],
+							np.concatenate(adj)[None], _wstate,
+							agent_goals=_wgoals,
+							agent_stalled=_wstall,
+							agent_in_tube=_win_tube)
+						_combined = available_actions * _mask[0]          # (na, n_act)
+						_empty = _combined.sum(axis=-1) == 0
+						_combined[_empty] = available_actions[_empty]     # never all-zero
+						available_actions = _combined
+						if getattr(self, "cbf_eval", None) is not None:
+							self.cbf_eval.filter_step(int(_no_safe[0].sum()),
+								int((_mask[0] == 0).sum()), self.num_agents)
+					# === end CBF eval filter ===
 					action, rnn_states = self.trainer.policy.act(
 														np.concatenate(obs),
 														np.concatenate(node_obs),
@@ -715,6 +957,15 @@ class GMPERunner(Runner):
 				# agent_states = self.get_agent_states(envs)
 				# bluesky.update(agent_states)
 				episode_rewards.append(rewards)
+
+				# === CBF eval metrics (added, read-only) — accumulate separation
+				# severity from the POST-step world positions. Observes world state
+				# only; never touches policy/env/RNG, so it cannot change any existing
+				# metric. Skipped entirely when no collector is attached. ===
+				if getattr(self, "cbf_eval", None) is not None:
+					self.cbf_eval.step(envs.envs[0].world.agents,
+						getattr(self, "cbf_eval_scen", None), envs.envs[0].world)
+				# === end CBF eval metrics ===
 
 				# Track exit times for agents that just completed (for throughput)
 				current_time = step * self.dt  # dt = 0.1 seconds per step
@@ -852,6 +1103,18 @@ class GMPERunner(Runner):
 			throughput = len(successful_exits) / (episode_time / 60.0) if episode_time > 0 else 0.0
 			print(f"Episode {episode+1}/{self.all_args.render_episodes} - Throughput: {throughput:.2f} agents/minute")
 			throughput_list.append(throughput)
+			# === CBF eval metrics (added) — hand this episode's ORIGINAL metrics to
+			# the collector (which pairs them with its own severity geometry). The
+			# collector only READS these; the values above are unchanged. ===
+			if getattr(self, "cbf_eval", None) is not None:
+				self.cbf_eval.end_episode(num_collisions, success,
+					conformance_percentage, spacing_violations,
+					throughput, episode_time)
+				_cf = self.cbf_eval.closest["all"][-1]
+				print(f"  [cbf] ep {episode+1}: collisions={num_collisions:.1f}  "
+					f"success={np.mean(success)*100:.1f}%  "
+					f"min_sep={_cf:.3f}km")
+			# === end CBF eval metrics ===
 			# Log episode metrics (only active if --eval_mode flag is set)
 			# Note: conformance_percentage from env tracks violations, so invert to get actual conformance
 			violation_pct = np.mean(conformance_percentage) if len(conformance_percentage) > 0 else 0.0
@@ -1109,6 +1372,12 @@ class GMPERunner(Runner):
 
 		print("Spacing violations Mean:", spacing_violations_mean)
 		print("Spacing violations median:", spacing_violations_median)
+
+		# === CBF eval metrics (added) — print + save the full severity summary
+		# (collisions/success/conformance above are the ORIGINAL's, unchanged). ===
+		if getattr(self, "cbf_eval", None) is not None:
+			self.cbf_eval.finalize(self.all_args)
+		# === end CBF eval metrics ===
 
 		rewards_mean = np.mean(rewards_arr)
 

@@ -1,0 +1,11 @@
+# Stage-2 CBF safety-filter result  2026-09-28 22:03:33.942259
+# N=5  episodes=50  alpha=1.0  horizon=1  fallback=least_unsafe  barrier=cbf_stage1_barrier.pt
+
+metric                            baseline        filtered
+mean collisions                     12.790           1.590
+mean success rate                   90.80%          83.20%
+corridor conformance                99.35%          98.00%
+
+change: collisions -11.200 (-87.6%),  success -7.60 pts,  conformance -1.35 pts
+no-safe-action rate    : 27.01%  (of 41945 agent-steps)
+avg primitives blocked : 6.55 / 25 per step

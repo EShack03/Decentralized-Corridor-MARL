@@ -1,0 +1,99 @@
+# CBF density sweep [3B, neighbour=constant_velocity]  2026-10-03 01:22:05.948910
+# Ns=[5, 8, 10]  episodes=50  seed=1  barrier=cbf_stage1_barrier.pt
+# alphas=[1.0] horizons=[3] fallbacks=['least_unsafe'] neighbour_model=constant_velocity
+
+========================================================================================
+CBF EVAL SWEEP [3B, neighbour=constant_velocity]  (N=5, episodes=50, seeds=[1, 2, 3])
+baseline (no filter): collisions=6.13, success=95.3%, conformance=99.5%  [collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode]
+  (mean over 3 seeds; baseline collisions std +/-1.36, success std +/-0.2 pts)
+========================================================================================
+ alpha horizon      fallback  collisions   d_coll%  success%   conf%  nosafe%
+----------------------------------------------------------------------------------------
+  1.00       3  least_unsafe        0.05     -99.2      94.7    99.2     21.1
+----------------------------------------------------------------------------------------
+
+ACROSS-SEED STD  (+/- population std over 3 seeds [1, 2, 3]; same metric, same episodes per seed)
+                config  coll_std   succ%_std   conf%_std
+--------------------------------------------------------
+   baseline(no filter)      1.36        0.19        0.13
+  a1.0_h3_least_unsafe      0.07        0.50        0.36
+--------------------------------------------------------
+
+SEPARATION / SEVERITY  (SEP=0.1524 km, near-miss buffer = 2x SEP). coll_xchk should match collisions (independent cross-check).
+                config    coll coll_xchk  minSep_km  maxIntr_km  nearmiss%   CFep%  thru/min
+--------------------------------------------------------------------------------------------
+   baseline(no filter)    6.13      6.12      0.009       0.018       3.59    77.3     1.430
+  a1.0_h3_least_unsafe    0.05      0.05      0.145       0.000       3.58    98.7     1.420
+--------------------------------------------------------------------------------------------
+
+IN- vs OUTSIDE-CORRIDOR collisions & worst intrusion  (in-corridor = either aircraft inside its tube; coll_in + coll_out = collisions)
+                config  coll_in coll_out  maxIntr_in  maxIntr_out
+-----------------------------------------------------------------
+   baseline(no filter)     3.81     2.31       0.015        0.014
+  a1.0_h3_least_unsafe     0.02     0.03       0.000        0.000
+-----------------------------------------------------------------
+BEST @N=5 (success within 3 pts): alpha=1.0, horizon=3, fallback=least_unsafe -> collisions 6.13 -> 0.05 (-99.2%), no-safe 21.1%
+
+========================================================================================
+CBF EVAL SWEEP [3B, neighbour=constant_velocity]  (N=8, episodes=50, seeds=[1, 2, 3])
+baseline (no filter): collisions=22.54, success=93.5%, conformance=97.8%  [collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode]
+  (mean over 3 seeds; baseline collisions std +/-4.42, success std +/-0.5 pts)
+========================================================================================
+ alpha horizon      fallback  collisions   d_coll%  success%   conf%  nosafe%
+----------------------------------------------------------------------------------------
+  1.00       3  least_unsafe        0.55     -97.6      92.7    97.6     27.9
+----------------------------------------------------------------------------------------
+
+ACROSS-SEED STD  (+/- population std over 3 seeds [1, 2, 3]; same metric, same episodes per seed)
+                config  coll_std   succ%_std   conf%_std
+--------------------------------------------------------
+   baseline(no filter)      4.42        0.54        0.08
+  a1.0_h3_least_unsafe      0.08        1.27        0.37
+--------------------------------------------------------
+
+SEPARATION / SEVERITY  (SEP=0.1524 km, near-miss buffer = 2x SEP). coll_xchk should match collisions (independent cross-check).
+                config    coll coll_xchk  minSep_km  maxIntr_km  nearmiss%   CFep%  thru/min
+--------------------------------------------------------------------------------------------
+   baseline(no filter)   22.54     22.48      0.006       0.050       3.58    32.7     2.244
+  a1.0_h3_least_unsafe    0.55      0.55      0.097       0.004       3.72    70.7     2.226
+--------------------------------------------------------------------------------------------
+
+IN- vs OUTSIDE-CORRIDOR collisions & worst intrusion  (in-corridor = either aircraft inside its tube; coll_in + coll_out = collisions)
+                config  coll_in coll_out  maxIntr_in  maxIntr_out
+-----------------------------------------------------------------
+   baseline(no filter)    13.45     9.03       0.042        0.045
+  a1.0_h3_least_unsafe     0.13     0.42       0.001        0.003
+-----------------------------------------------------------------
+BEST @N=8 (success within 3 pts): alpha=1.0, horizon=3, fallback=least_unsafe -> collisions 22.54 -> 0.55 (-97.6%), no-safe 27.9%
+
+========================================================================================
+CBF EVAL SWEEP [3B, neighbour=constant_velocity]  (N=10, episodes=50, seeds=[1, 2, 3])
+baseline (no filter): collisions=43.39, success=94.1%, conformance=98.1%  [collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode]
+  (mean over 3 seeds; baseline collisions std +/-5.71, success std +/-0.1 pts)
+========================================================================================
+ alpha horizon      fallback  collisions   d_coll%  success%   conf%  nosafe%
+----------------------------------------------------------------------------------------
+  1.00       3  least_unsafe        1.33     -96.9      92.7    97.2     28.8
+----------------------------------------------------------------------------------------
+
+ACROSS-SEED STD  (+/- population std over 3 seeds [1, 2, 3]; same metric, same episodes per seed)
+                config  coll_std   succ%_std   conf%_std
+--------------------------------------------------------
+   baseline(no filter)      5.71        0.09        0.35
+  a1.0_h3_least_unsafe      0.17        0.34        0.45
+--------------------------------------------------------
+
+SEPARATION / SEVERITY  (SEP=0.1524 km, near-miss buffer = 2x SEP). coll_xchk should match collisions (independent cross-check).
+                config    coll coll_xchk  minSep_km  maxIntr_km  nearmiss%   CFep%  thru/min
+--------------------------------------------------------------------------------------------
+   baseline(no filter)   43.39     43.17      0.003       0.078       3.37     9.3     2.824
+  a1.0_h3_least_unsafe    1.33      1.31      0.052       0.010       3.32    46.7     2.782
+--------------------------------------------------------------------------------------------
+
+IN- vs OUTSIDE-CORRIDOR collisions & worst intrusion  (in-corridor = either aircraft inside its tube; coll_in + coll_out = collisions)
+                config  coll_in coll_out  maxIntr_in  maxIntr_out
+-----------------------------------------------------------------
+   baseline(no filter)    24.39    18.78       0.064        0.073
+  a1.0_h3_least_unsafe     0.26     1.05       0.002        0.009
+-----------------------------------------------------------------
+BEST @N=10 (success within 3 pts): alpha=1.0, horizon=3, fallback=least_unsafe -> collisions 43.39 -> 1.33 (-96.9%), no-safe 28.8%

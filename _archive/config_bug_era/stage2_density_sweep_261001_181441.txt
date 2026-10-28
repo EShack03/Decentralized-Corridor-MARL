@@ -1,0 +1,33 @@
+# Stage-2 CBF density sweep  2026-10-01 18:14:41.186325
+# Ns=[5, 8, 10]  episodes=50  seed=1  barrier=cbf_stage1_barrier.pt
+# alphas=[1.0] horizons=[1] fallbacks=['least_unsafe'] neighbour_model=constant_velocity
+
+========================================================================================
+STAGE-2 SWEEP  (N=5, episodes=50, seed=1)
+baseline: collisions=12.79, success=90.8%, conformance=99.7%
+========================================================================================
+ alpha horizon      fallback  collisions   d_coll%  success%   conf%  nosafe%
+----------------------------------------------------------------------------------------
+  1.00       1  least_unsafe        0.36     -97.2      89.2    99.2     14.6
+----------------------------------------------------------------------------------------
+BEST @N=5 (success within 3 pts): alpha=1.0, horizon=1, fallback=least_unsafe -> collisions 12.79 -> 0.36 (-97.2%), no-safe 14.6%
+
+========================================================================================
+STAGE-2 SWEEP  (N=8, episodes=50, seed=1)
+baseline: collisions=22.61, success=90.2%, conformance=98.2%
+========================================================================================
+ alpha horizon      fallback  collisions   d_coll%  success%   conf%  nosafe%
+----------------------------------------------------------------------------------------
+  1.00       1  least_unsafe        2.27     -90.0      88.5    98.5     11.7
+----------------------------------------------------------------------------------------
+BEST @N=8 (success within 3 pts): alpha=1.0, horizon=1, fallback=least_unsafe -> collisions 22.61 -> 2.27 (-90.0%), no-safe 11.7%
+
+========================================================================================
+STAGE-2 SWEEP  (N=10, episodes=50, seed=1)
+baseline: collisions=30.77, success=81.6%, conformance=98.4%
+========================================================================================
+ alpha horizon      fallback  collisions   d_coll%  success%   conf%  nosafe%
+----------------------------------------------------------------------------------------
+  1.00       1  least_unsafe        3.73     -87.9      84.2    98.0      7.6
+----------------------------------------------------------------------------------------
+BEST @N=10 (success within 3 pts): alpha=1.0, horizon=1, fallback=least_unsafe -> collisions 30.77 -> 3.73 (-87.9%), no-safe 7.6%

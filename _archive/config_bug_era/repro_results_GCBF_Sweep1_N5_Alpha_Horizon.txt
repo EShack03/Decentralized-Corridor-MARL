@@ -1,0 +1,348 @@
+=== BASELINE (no filter) ===
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=66.0  success=80.0%
+  ep 2/20: collisions=3.0  success=80.0%
+  ep 3/20: collisions=0.0  success=100.0%
+  ep 4/20: collisions=17.0  success=100.0%
+  ep 5/20: collisions=0.0  success=100.0%
+  ep 6/20: collisions=0.0  success=80.0%
+  ep 7/20: collisions=0.0  success=100.0%
+  ep 8/20: collisions=2.0  success=80.0%
+  ep 9/20: collisions=3.0  success=80.0%
+  ep 10/20: collisions=0.0  success=80.0%
+  ep 11/20: collisions=0.0  success=100.0%
+  ep 12/20: collisions=1.0  success=100.0%
+  ep 13/20: collisions=62.0  success=80.0%
+  ep 14/20: collisions=0.0  success=80.0%
+  ep 15/20: collisions=52.0  success=100.0%
+  ep 16/20: collisions=0.0  success=100.0%
+  ep 17/20: collisions=9.0  success=100.0%
+  ep 18/20: collisions=0.0  success=60.0%
+  ep 19/20: collisions=7.0  success=100.0%
+  ep 20/20: collisions=0.0  success=80.0%
+baseline: collisions=11.100  success=89.00%
+
+=== SWEEP: alphas=[0.1, 0.3, 0.5, 1.0] horizons=[1, 3, 5] fallbacks=['least_unsafe'] ===
+
+--- alpha=0.1, horizon=1, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=0.0  success=20.0%
+  ep 2/20: collisions=6.0  success=40.0%
+  ep 3/20: collisions=0.0  success=20.0%
+  ep 4/20: collisions=0.0  success=80.0%
+  ep 5/20: collisions=0.0  success=20.0%
+  ep 6/20: collisions=0.0  success=80.0%
+  ep 7/20: collisions=0.0  success=80.0%
+  ep 8/20: collisions=0.0  success=60.0%
+  ep 9/20: collisions=0.0  success=60.0%
+  ep 10/20: collisions=0.0  success=60.0%
+  ep 11/20: collisions=0.0  success=60.0%
+  ep 12/20: collisions=0.0  success=60.0%
+  ep 13/20: collisions=5.0  success=80.0%
+  ep 14/20: collisions=0.0  success=80.0%
+  ep 15/20: collisions=0.0  success=40.0%
+  ep 16/20: collisions=0.0  success=60.0%
+  ep 17/20: collisions=0.0  success=40.0%
+  ep 18/20: collisions=0.0  success=60.0%
+  ep 19/20: collisions=0.0  success=20.0%
+  ep 20/20: collisions=3.0  success=60.0%
+
+--- alpha=0.3, horizon=1, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=1.0  success=80.0%
+  ep 2/20: collisions=3.0  success=60.0%
+  ep 3/20: collisions=0.0  success=100.0%
+  ep 4/20: collisions=0.0  success=80.0%
+  ep 5/20: collisions=1.0  success=60.0%
+  ep 6/20: collisions=3.0  success=100.0%
+  ep 7/20: collisions=0.0  success=100.0%
+  ep 8/20: collisions=0.0  success=100.0%
+  ep 9/20: collisions=0.0  success=80.0%
+  ep 10/20: collisions=20.0  success=60.0%
+  ep 11/20: collisions=1.5  success=60.0%
+  ep 12/20: collisions=1.0  success=80.0%
+  ep 13/20: collisions=0.0  success=80.0%
+  ep 14/20: collisions=0.0  success=100.0%
+  ep 15/20: collisions=0.0  success=80.0%
+  ep 16/20: collisions=0.0  success=60.0%
+  ep 17/20: collisions=0.0  success=100.0%
+  ep 18/20: collisions=0.0  success=80.0%
+  ep 19/20: collisions=0.0  success=80.0%
+  ep 20/20: collisions=6.0  success=40.0%
+
+--- alpha=0.5, horizon=1, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=23.0  success=60.0%
+  ep 2/20: collisions=0.0  success=100.0%
+  ep 3/20: collisions=0.0  success=100.0%
+  ep 4/20: collisions=0.0  success=80.0%
+  ep 5/20: collisions=0.0  success=40.0%
+  ep 6/20: collisions=3.0  success=100.0%
+  ep 7/20: collisions=0.0  success=80.0%
+  ep 8/20: collisions=0.0  success=100.0%
+  ep 9/20: collisions=0.0  success=100.0%
+  ep 10/20: collisions=7.0  success=100.0%
+  ep 11/20: collisions=0.0  success=80.0%
+  ep 12/20: collisions=0.0  success=100.0%
+  ep 13/20: collisions=0.0  success=80.0%
+  ep 14/20: collisions=0.0  success=60.0%
+  ep 15/20: collisions=0.0  success=100.0%
+  ep 16/20: collisions=2.0  success=40.0%
+  ep 17/20: collisions=0.0  success=80.0%
+  ep 18/20: collisions=0.0  success=60.0%
+  ep 19/20: collisions=0.0  success=80.0%
+  ep 20/20: collisions=0.0  success=100.0%
+
+--- alpha=1.0, horizon=1, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=4.0  success=40.0%
+  ep 2/20: collisions=0.0  success=80.0%
+  ep 3/20: collisions=0.0  success=100.0%
+  ep 4/20: collisions=2.0  success=60.0%
+  ep 5/20: collisions=2.0  success=80.0%
+  ep 6/20: collisions=0.0  success=100.0%
+  ep 7/20: collisions=0.0  success=100.0%
+  ep 8/20: collisions=0.0  success=80.0%
+  ep 9/20: collisions=0.0  success=80.0%
+  ep 10/20: collisions=3.0  success=20.0%
+  ep 11/20: collisions=0.0  success=80.0%
+  ep 12/20: collisions=0.5  success=100.0%
+  ep 13/20: collisions=0.0  success=100.0%
+  ep 14/20: collisions=3.0  success=80.0%
+  ep 15/20: collisions=0.0  success=60.0%
+  ep 16/20: collisions=3.0  success=100.0%
+  ep 17/20: collisions=0.0  success=80.0%
+  ep 18/20: collisions=0.0  success=60.0%
+  ep 19/20: collisions=2.5  success=80.0%
+  ep 20/20: collisions=0.0  success=100.0%
+
+--- alpha=0.1, horizon=3, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=0.0  success=20.0%
+  ep 2/20: collisions=3.0  success=60.0%
+  ep 3/20: collisions=12.0  success=0.0%
+  ep 4/20: collisions=2.0  success=60.0%
+  ep 5/20: collisions=1.0  success=40.0%
+  ep 6/20: collisions=0.0  success=40.0%
+  ep 7/20: collisions=3.0  success=20.0%
+  ep 8/20: collisions=6.0  success=40.0%
+  ep 9/20: collisions=0.0  success=20.0%
+  ep 10/20: collisions=23.0  success=20.0%
+  ep 11/20: collisions=19.0  success=60.0%
+  ep 12/20: collisions=0.0  success=20.0%
+  ep 13/20: collisions=0.0  success=60.0%
+  ep 14/20: collisions=11.0  success=40.0%
+  ep 15/20: collisions=0.0  success=40.0%
+  ep 16/20: collisions=0.0  success=40.0%
+  ep 17/20: collisions=0.0  success=20.0%
+  ep 18/20: collisions=21.0  success=20.0%
+  ep 19/20: collisions=0.0  success=20.0%
+  ep 20/20: collisions=9.0  success=20.0%
+
+--- alpha=0.3, horizon=3, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=12.0  success=60.0%
+  ep 2/20: collisions=0.0  success=100.0%
+  ep 3/20: collisions=0.0  success=100.0%
+  ep 4/20: collisions=0.0  success=100.0%
+  ep 5/20: collisions=7.0  success=80.0%
+  ep 6/20: collisions=6.0  success=100.0%
+  ep 7/20: collisions=0.0  success=80.0%
+  ep 8/20: collisions=4.5  success=100.0%
+  ep 9/20: collisions=0.0  success=80.0%
+  ep 10/20: collisions=0.0  success=100.0%
+  ep 11/20: collisions=4.0  success=0.0%
+  ep 12/20: collisions=0.0  success=80.0%
+  ep 13/20: collisions=0.0  success=60.0%
+  ep 14/20: collisions=4.0  success=80.0%
+  ep 15/20: collisions=6.0  success=20.0%
+  ep 16/20: collisions=0.0  success=80.0%
+  ep 17/20: collisions=8.0  success=100.0%
+  ep 18/20: collisions=0.0  success=80.0%
+  ep 19/20: collisions=3.0  success=40.0%
+  ep 20/20: collisions=3.0  success=100.0%
+
+--- alpha=0.5, horizon=3, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=7.0  success=80.0%
+  ep 2/20: collisions=0.0  success=80.0%
+  ep 3/20: collisions=0.0  success=100.0%
+  ep 4/20: collisions=0.0  success=100.0%
+  ep 5/20: collisions=0.0  success=60.0%
+  ep 6/20: collisions=0.0  success=100.0%
+  ep 7/20: collisions=0.0  success=80.0%
+  ep 8/20: collisions=33.0  success=60.0%
+  ep 9/20: collisions=1.0  success=80.0%
+  ep 10/20: collisions=0.0  success=60.0%
+  ep 11/20: collisions=0.0  success=80.0%
+  ep 12/20: collisions=17.0  success=60.0%
+  ep 13/20: collisions=0.0  success=60.0%
+  ep 14/20: collisions=0.0  success=100.0%
+  ep 15/20: collisions=0.0  success=80.0%
+  ep 16/20: collisions=0.0  success=100.0%
+  ep 17/20: collisions=0.0  success=60.0%
+  ep 18/20: collisions=0.0  success=60.0%
+  ep 19/20: collisions=0.0  success=100.0%
+  ep 20/20: collisions=2.0  success=100.0%
+
+--- alpha=1.0, horizon=3, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=11.0  success=80.0%
+  ep 2/20: collisions=0.0  success=80.0%
+  ep 3/20: collisions=0.0  success=100.0%
+  ep 4/20: collisions=0.0  success=100.0%
+  ep 5/20: collisions=0.0  success=80.0%
+  ep 6/20: collisions=5.0  success=80.0%
+  ep 7/20: collisions=0.0  success=100.0%
+  ep 8/20: collisions=0.0  success=60.0%
+  ep 9/20: collisions=10.0  success=100.0%
+  ep 10/20: collisions=0.0  success=100.0%
+  ep 11/20: collisions=0.0  success=60.0%
+  ep 12/20: collisions=0.0  success=80.0%
+  ep 13/20: collisions=0.0  success=100.0%
+  ep 14/20: collisions=0.0  success=100.0%
+  ep 15/20: collisions=0.0  success=100.0%
+  ep 16/20: collisions=5.0  success=80.0%
+  ep 17/20: collisions=6.0  success=80.0%
+  ep 18/20: collisions=0.0  success=100.0%
+  ep 19/20: collisions=0.0  success=60.0%
+  ep 20/20: collisions=0.0  success=80.0%
+
+--- alpha=0.1, horizon=5, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=0.0  success=20.0%
+  ep 2/20: collisions=0.0  success=40.0%
+  ep 3/20: collisions=24.0  success=40.0%
+  ep 4/20: collisions=2.0  success=60.0%
+  ep 5/20: collisions=27.0  success=40.0%
+  ep 6/20: collisions=0.0  success=40.0%
+  ep 7/20: collisions=27.0  success=0.0%
+  ep 8/20: collisions=0.0  success=40.0%
+  ep 9/20: collisions=12.0  success=60.0%
+  ep 10/20: collisions=0.0  success=0.0%
+  ep 11/20: collisions=0.0  success=20.0%
+  ep 12/20: collisions=0.0  success=20.0%
+  ep 13/20: collisions=0.0  success=20.0%
+  ep 14/20: collisions=28.0  success=40.0%
+  ep 15/20: collisions=0.0  success=40.0%
+  ep 16/20: collisions=0.0  success=20.0%
+  ep 17/20: collisions=25.0  success=20.0%
+  ep 18/20: collisions=17.0  success=40.0%
+  ep 19/20: collisions=20.0  success=20.0%
+  ep 20/20: collisions=36.0  success=20.0%
+
+--- alpha=0.3, horizon=5, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=0.0  success=60.0%
+  ep 2/20: collisions=0.0  success=100.0%
+  ep 3/20: collisions=3.0  success=60.0%
+  ep 4/20: collisions=20.0  success=80.0%
+  ep 5/20: collisions=3.0  success=60.0%
+  ep 6/20: collisions=0.0  success=80.0%
+  ep 7/20: collisions=0.0  success=40.0%
+  ep 8/20: collisions=0.0  success=40.0%
+  ep 9/20: collisions=3.0  success=60.0%
+  ep 10/20: collisions=26.0  success=60.0%
+  ep 11/20: collisions=0.0  success=20.0%
+  ep 12/20: collisions=1.0  success=80.0%
+  ep 13/20: collisions=0.0  success=20.0%
+  ep 14/20: collisions=2.0  success=40.0%
+  ep 15/20: collisions=13.0  success=40.0%
+  ep 16/20: collisions=21.0  success=40.0%
+  ep 17/20: collisions=5.0  success=80.0%
+  ep 18/20: collisions=0.0  success=100.0%
+  ep 19/20: collisions=0.0  success=60.0%
+  ep 20/20: collisions=0.0  success=60.0%
+
+--- alpha=0.5, horizon=5, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=7.0  success=80.0%
+  ep 2/20: collisions=0.0  success=60.0%
+  ep 3/20: collisions=0.0  success=60.0%
+  ep 4/20: collisions=0.0  success=80.0%
+  ep 5/20: collisions=0.0  success=100.0%
+  ep 6/20: collisions=7.0  success=80.0%
+  ep 7/20: collisions=5.0  success=80.0%
+  ep 8/20: collisions=12.0  success=80.0%
+  ep 9/20: collisions=8.5  success=100.0%
+  ep 10/20: collisions=0.0  success=20.0%
+  ep 11/20: collisions=2.0  success=40.0%
+  ep 12/20: collisions=13.0  success=60.0%
+  ep 13/20: collisions=8.0  success=80.0%
+  ep 14/20: collisions=22.0  success=60.0%
+  ep 15/20: collisions=10.0  success=60.0%
+  ep 16/20: collisions=0.0  success=100.0%
+  ep 17/20: collisions=6.0  success=80.0%
+  ep 18/20: collisions=0.0  success=80.0%
+  ep 19/20: collisions=8.0  success=40.0%
+  ep 20/20: collisions=0.0  success=100.0%
+
+--- alpha=1.0, horizon=5, fallback=least_unsafe ---
+Overriding Observation dimension
+Overriding Observation dimension
+Restoring from checkpoint stored in model_weights
+  ep 1/20: collisions=13.0  success=40.0%
+  ep 2/20: collisions=5.0  success=100.0%
+  ep 3/20: collisions=0.0  success=60.0%
+  ep 4/20: collisions=11.0  success=60.0%
+  ep 5/20: collisions=0.0  success=100.0%
+  ep 6/20: collisions=0.0  success=60.0%
+  ep 7/20: collisions=29.0  success=60.0%
+  ep 8/20: collisions=6.0  success=60.0%
+  ep 9/20: collisions=0.0  success=60.0%
+  ep 10/20: collisions=0.0  success=80.0%
+  ep 11/20: collisions=3.0  success=60.0%
+  ep 12/20: collisions=2.0  success=100.0%
+  ep 13/20: collisions=0.0  success=100.0%
+  ep 14/20: collisions=0.0  success=100.0%
+  ep 15/20: collisions=15.0  success=20.0%
+  ep 16/20: collisions=3.0  success=80.0%
+  ep 17/20: collisions=0.0  success=100.0%
+  ep 18/20: collisions=12.0  success=20.0%
+  ep 19/20: collisions=4.0  success=40.0%
+  ep 20/20: collisions=0.0  success=100.0%
+
+========================================================================================
+STAGE-2 SWEEP  (N=5, episodes=20)
+baseline: collisions=11.10, success=89.0%
+========================================================================================
+ alpha horizon      fallback  collisions   d_coll%  success%  nosafe%
+----------------------------------------------------------------------------------------
+  0.10       1  least_unsafe        0.70     -93.7      54.0     15.0
+  0.30       1  least_unsafe        1.82     -83.6      79.0     18.4
+  0.50       1  least_unsafe        1.75     -84.2      82.0     16.4
+  1.00       1  least_unsafe        1.00     -91.0      79.0     14.9
+  0.10       3  least_unsafe        5.50     -50.5      33.0     11.6
+  0.30       3  least_unsafe        2.88     -74.1      77.0     16.7
+  0.50       3  least_unsafe        3.00     -73.0      80.0     16.5
+  1.00       3  least_unsafe        1.85     -83.3      86.0     15.3
+  0.10       5  least_unsafe       10.90      -1.8      30.0     11.3
+  0.30       5  least_unsafe        4.85     -56.3      59.0     13.9
+  0.50       5  least_unsafe        5.42     -51.1      72.0     16.7
+  1.00       5  least_unsafe        5.15     -53.6      70.0     12.3
+----------------------------------------------------------------------------------------
+BEST (success within 3 pts): alpha=1.0, horizon=3, fallback=least_unsafe -> collisions 11.10 -> 1.85 (-83.3%), no-safe 15.3%

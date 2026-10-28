@@ -1,0 +1,29 @@
+# CBF safety-filter result [s3B, neighbour=constant_velocity]  2026-10-04 23:14:01.089008
+# FILTERED SYSTEM ONLY (no baseline; run --with_baseline for A/B)
+# N=5  episodes=5  seed=1  alpha=1.0  horizon=3  fallback=least_unsafe  neighbour_model=constant_velocity  barrier=cbf_stage1_barrier.pt
+
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+metric                                   value
+collisions (LoS)                         0.000
+  collisions cross-check                 0.000
+mean success rate                       88.00%
+corridor conformance                    97.16%
+collision-free episodes                 100.0%
+min separation (km)                      0.163
+mean closest approach (km)               0.280
+max intrusion depth (km)                 0.000
+integrated intrusion (km.st)             0.000
+near-miss rate %                          1.27
+spacing violations %                      0.00
+throughput (agents/min)                  1.320
+completion time (s, reached)             92.97
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   0.000
+collisions outside corridor              0.000
+max intrusion in (km)                    0.000
+max intrusion out (km)                   0.000
+
+no-safe-action rate    : 21.61%  (of 3610 agent-steps)
+avg primitives blocked : 5.29 / 25 per step

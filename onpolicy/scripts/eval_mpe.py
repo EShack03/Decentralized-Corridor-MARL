@@ -63,8 +63,8 @@ def parse_args(args, parser):
     parser.add_argument("--min_dist_thresh", type=float, default=0.05, 
                         help="The minimum distance threshold to classify whether "
                         "agent has reached the goal or not")
-    parser.add_argument("--use_dones", type=lambda x:bool(strtobool(x)), 
-                        default=True, help="Whether we want to use the 'done=True' " 
+    parser.add_argument("--use_dones", type=lambda x:bool(strtobool(x)),
+                        default=True, help="Whether we want to use the 'done=True' "
                         "when agent has reached the goal or just return False like "
                         "the `simple.py` or `simple_spread.py`")
     '''
@@ -73,6 +73,114 @@ def parse_args(args, parser):
                         choices=["unicycle_vehicle", "double_integrator", "air_taxi"],
                         help="Dynamics model type for agents.")
     '''
+
+    # === CBF evaluation (added) — all off by default, so a plain invocation of
+    # eval_mpe.py behaves exactly as the original. When --cbf_eval is set, the
+    # runner's render() loop additionally records separation-severity metrics
+    # (read-only); when --cbf_filter is also set, the CBF safety filter masks
+    # unsafe primitives in-loop. The original metrics are unchanged either way. ===
+    parser.add_argument("--cbf_eval", action="store_true",
+                        help="record the extra CBF safety/severity metrics in render()")
+    parser.add_argument("--cbf_filter", action="store_true",
+                        help="apply the CBF safety filter in render() (needs --cbf_barrier)")
+    parser.add_argument("--cbf_barrier", type=str, default="cbf_stage1_barrier.pt")
+    parser.add_argument("--cbf_alpha", type=float, default=1.0)
+    parser.add_argument("--cbf_eps", type=float, default=0.0)
+    parser.add_argument("--cbf_horizon", type=int, default=3)
+    parser.add_argument("--cbf_fallback", type=str, default="least_unsafe",
+                        choices=["least_unsafe", "unfiltered"])
+    parser.add_argument("--cbf_neighbour_model", type=str, default="static",
+                        choices=["static", "constant_velocity"])
+    parser.add_argument("--cbf_hidden", type=int, default=64)
+    parser.add_argument("--cbf_layers", type=int, default=2)
+    # --- Rung-1 geometry-adaptive class-K gain (proactive, alpha-only) ---------
+    parser.add_argument("--cbf_adaptive", action="store_true",
+                        help="ramp the class-K gain alpha per agent from --cbf_alpha "
+                             "toward --cbf_alpha_max using the local conflict-geometry "
+                             "(liveness) signal; horizon stays fixed at --cbf_horizon. "
+                             "Rung 1 of the geometry-adaptive filter.")
+    parser.add_argument("--cbf_alpha_max", type=float, default=2.0,
+                        help="upper end of the adaptive alpha ramp (used only with "
+                             "--cbf_adaptive).")
+    parser.add_argument("--cbf_ell_thresh", type=float, default=0.32,
+                        help="conflict angle (rad) at/below which the alpha ramp is "
+                             "full (Chandra et al. liveness threshold ~0.32).")
+    parser.add_argument("--cbf_ell_hi", type=float, default=0.80,
+                        help="conflict angle (rad) above which the alpha ramp is off.")
+    parser.add_argument("--cbf_sense_range", type=float, default=None,
+                        help="km; only neighbours within this range feed the adaptive "
+                             "signal. Default None = every other agent counts.")
+    parser.add_argument("--cbf_adaptive_sign", type=float, default=1.0,
+                        choices=[1.0, -1.0],
+                        help="+1 (default, corrected: converging pair -> small angle); "
+                             "-1 flips it if the sign-convention check shows inversion.")
+    parser.add_argument("--cbf_heading_gate", type=float, default=0.6,
+                        help="rad; a neighbour whose heading is within this of the "
+                             "ego's is treated as in-line following and excluded from "
+                             "the adaptive ramp (so corridor queueing stays at base "
+                             "alpha; only crossing/opposing geometry ramps). 0 disables "
+                             "the gate (ungated Rung-1 behaviour).")
+    parser.add_argument("--cbf_adaptive_horizon", action="store_true",
+                        help="Rung 2: also ramp the per-agent look-ahead horizon DOWN "
+                             "from --cbf_horizon toward --cbf_h_min on the same "
+                             "conflict-geometry signal (more convergence -> shorter "
+                             "horizon). Use together with --cbf_adaptive.")
+    parser.add_argument("--cbf_h_min", type=int, default=1,
+                        help="shortest horizon the adaptive ramp can reach (used only "
+                             "with --cbf_adaptive_horizon). Default 1.")
+    parser.add_argument("--cbf_adaptive_gate", type=str, default="heading",
+                        choices=["heading", "path"],
+                        help="which in-line/cross-traffic gate the adaptive ramp uses: "
+                             "'heading' (legacy, heading-difference via --cbf_heading_gate) "
+                             "or 'path' (bearing of a neighbour relative to the ego's own "
+                             "direction of travel; a leader ahead along a curving corridor "
+                             "stays excluded through a bend, fixing the sequential "
+                             "regression). Default 'heading' (unchanged behaviour).")
+    parser.add_argument("--cbf_path_gate", type=float, default=0.6,
+                        help="half-angle (rad) of the in-line cone for the path gate "
+                             "(--cbf_adaptive_gate path). ~34 deg default; lower it if "
+                             "merge starts to regress (cone too wide).")
+    parser.add_argument("--cbf_adaptive_stall", action="store_true",
+                        help="Rung 3: drive the adaptive ramp from a per-agent PROGRESS-"
+                             "STALL signal instead of the proactive geometry signal. Long "
+                             "horizon / base alpha by default; ramp to short horizon / "
+                             "alpha_max only when an agent's along-corridor progress stalls "
+                             "(a genuine deadlock). Use with --cbf_adaptive "
+                             "--cbf_adaptive_horizon. The stall flag is computed in the "
+                             "runner from the corridor-frame progress coordinate.")
+    parser.add_argument("--cbf_stall_window", type=int, default=15,
+                        help="steps over which along-corridor progress is measured for the "
+                             "Rung-3 stall signal.")
+    parser.add_argument("--cbf_stall_thresh", type=float, default=0.15,
+                        help="minimum net along-corridor progress (km) over the window; below "
+                             "this an agent is flagged stalled (Rung 3).")
+    parser.add_argument("--cbf_gap_guard", action="store_true",
+                        help="Variant 1 junction gap guard: suppress the adaptive ramp "
+                             "(force base alpha / deployed horizon) for any agent NOT "
+                             "physically inside its corridor tube. Removes the 90-deg "
+                             "junction turn-artifact over-ramp in the sequential bend "
+                             "while in-tube merge convergence still ramps. Uses the "
+                             "scenario's own is_in_tube (same test as the in/out metric).")
+    parser.add_argument("--run_stage", type=str, default=None)
+    parser.add_argument("--policy_slug", type=str, default=None)
+    parser.add_argument("--eval_tag", type=str, default=None)
+    parser.add_argument("--cbf_show", action="store_true",
+                        help="draw the per-step render while evaluating (watch it "
+                             "live, or save the GIF if --save_gifs). OFF by default: "
+                             "a CBF eval run is metrics-only so it is fast and cannot "
+                             "hit the render-buffer OOM. The numbers are identical "
+                             "either way -- this only controls whether a frame is drawn.")
+    parser.add_argument("--cbf_device", type=str, default="cpu",
+                        choices=["cpu", "cuda", "auto"],
+                        help="device for the barrier network inside the safety filter. "
+                             "cpu (default) is fully reproducible. cuda runs the barrier "
+                             "forward passes on the GPU (faster for a FILTERED run, which "
+                             "is barrier-bound); auto = cuda if available else cpu. NOTE: "
+                             "CPU and GPU float arithmetic differ at ~1e-7, which can flip "
+                             "a few borderline keep/drop decisions, so FILTERED numbers may "
+                             "shift very slightly vs cpu. The policy/env stay on CPU, so the "
+                             "BASELINE (no-filter) numbers are unaffected.")
+    # === end CBF evaluation args ===
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -114,6 +222,107 @@ def modify_args(model_dir:str,
     args.use_render = True
     args.n_rollout_threads = 1
     return args
+
+
+# === CBF evaluation helpers (added) ==========================================
+# air_taxi constants (mirrored from multiagent/config.AirTaxiConfig), used only
+# to build the world-frame safety filter.
+_KTS = 0.514444 * 0.001
+_CBF_V_MIN = 60 * _KTS
+_CBF_V_MAX = 175 * _KTS
+_CBF_ACCEL_MIN = -0.001
+_CBF_ACCEL_MAX = 0.002
+_CBF_ANG_RATE_MAX = 0.075
+_CBF_N_ACCEL = 5
+_CBF_N_ANGRATE = 5
+_CBF_DT = 1.0
+_CBF_SEP = 500 * 0.0003048
+_CBF_MAX_EDGE = 2 * 1.60934
+
+
+def _attach_cbf_eval(runner, all_args, device):
+    """Attach the CBF metrics collector (and optionally the safety filter) to the
+    runner so render() picks them up. Does nothing unless --cbf_eval is set."""
+    if not getattr(all_args, "cbf_eval", False):
+        return
+
+    # per-seed list for the result filename (one seed per eval_mpe invocation)
+    all_args._seeds = [int(all_args.seed)]
+    if not getattr(all_args, "eval_tag", None):
+        all_args.eval_tag = getattr(all_args, "run_stage", None) or "eval"
+
+    from onpolicy.algorithms.utils.cbf_eval_metrics import CBFEvalCollector
+
+    filtered = bool(getattr(all_args, "cbf_filter", False))
+    if filtered:
+        from onpolicy.algorithms.utils.cbf_gnn import CBFGNN
+        from onpolicy.algorithms.utils.cbf_filter import (
+            CBFSafetyFilter, build_primitive_table)
+        # Barrier device, chosen independently of the (forced-CPU) policy/env device.
+        # Only the barrier's GNN forward passes move; all of the filter's geometry
+        # stays in CPU numpy, so moving the barrier to CUDA speeds up a barrier-bound
+        # FILTERED run without touching the BASELINE path.
+        _want = getattr(all_args, "cbf_device", "cpu")
+        if _want == "auto":
+            _want = "cuda" if torch.cuda.is_available() else "cpu"
+        if _want == "cuda" and not torch.cuda.is_available():
+            print("[cbf] --cbf_device cuda requested but no GPU is visible; using cpu")
+            _want = "cpu"
+        bdev = torch.device(_want)
+        prim_table = build_primitive_table(_CBF_N_ACCEL, _CBF_N_ANGRATE,
+                                           _CBF_ACCEL_MIN, _CBF_ACCEL_MAX,
+                                           _CBF_ANG_RATE_MAX)
+        barrier = CBFGNN(node_obs_dim=7, edge_dim=1,
+                         hidden_size=all_args.cbf_hidden,
+                         num_layers=all_args.cbf_layers,
+                         max_edge_dist=_CBF_MAX_EDGE).to(bdev)
+        barrier.load_state_dict(torch.load(all_args.cbf_barrier, map_location=bdev))
+        barrier.eval()
+        runner.cbf_eval_filter = CBFSafetyFilter(
+            barrier=barrier, prim_table=prim_table, sep=_CBF_SEP, dt=_CBF_DT,
+            v_min=_CBF_V_MIN, v_max=_CBF_V_MAX,
+            alpha=all_args.cbf_alpha, eps=all_args.cbf_eps,
+            horizon=all_args.cbf_horizon, fallback=all_args.cbf_fallback,
+            num_agents=all_args.num_agents,
+            neighbour_model=all_args.cbf_neighbour_model, device=bdev,
+            adaptive_alpha=all_args.cbf_adaptive,
+            alpha_max=all_args.cbf_alpha_max,
+            ell_thresh=all_args.cbf_ell_thresh, ell_hi=all_args.cbf_ell_hi,
+            sense_range=all_args.cbf_sense_range,
+            adaptive_sign=all_args.cbf_adaptive_sign,
+            heading_gate=all_args.cbf_heading_gate,
+            adaptive_horizon=all_args.cbf_adaptive_horizon,
+            h_min=all_args.cbf_h_min,
+            adaptive_gate=all_args.cbf_adaptive_gate,
+            path_gate=all_args.cbf_path_gate,
+            adaptive_stall=all_args.cbf_adaptive_stall,
+            stall_window=all_args.cbf_stall_window,
+            stall_thresh=all_args.cbf_stall_thresh,
+            gap_guard=all_args.cbf_gap_guard)
+        if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
+            _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
+                        if all_args.cbf_adaptive_horizon
+                        else f"horizon={all_args.cbf_horizon} (fixed)")
+            print(f"[cbf] safety filter attached (neighbour={all_args.cbf_neighbour_model}, "
+                  f"ADAPTIVE alpha {all_args.cbf_alpha}->{all_args.cbf_alpha_max} "
+                  f"[ell_thresh={all_args.cbf_ell_thresh}, ell_hi={all_args.cbf_ell_hi}, "
+                  f"sense={all_args.cbf_sense_range}, sign={all_args.cbf_adaptive_sign:+.0f}, "
+                  f"gate={all_args.cbf_adaptive_gate}, heading_gate={all_args.cbf_heading_gate}, "
+                  f"path_gate={all_args.cbf_path_gate}, "
+                  f"stall={all_args.cbf_adaptive_stall}, gap_guard={all_args.cbf_gap_guard}"
+                  f"{'' if not all_args.cbf_adaptive_stall else f'(W={all_args.cbf_stall_window},thr={all_args.cbf_stall_thresh})'}], "
+                  f"{_hz_desc}, "
+                  f"fallback={all_args.cbf_fallback}); barrier={all_args.cbf_barrier}; "
+                  f"barrier_device={bdev}")
+        else:
+            print(f"[cbf] safety filter attached (neighbour={all_args.cbf_neighbour_model}, "
+                  f"alpha={all_args.cbf_alpha}, horizon={all_args.cbf_horizon}, "
+                  f"fallback={all_args.cbf_fallback}); barrier={all_args.cbf_barrier}; "
+                  f"barrier_device={bdev}")
+    else:
+        print("[cbf] metrics-only (no filter): recording severity for the raw policy")
+
+    runner.cbf_eval = CBFEvalCollector(filtered=filtered)
 
 
 def main(args):
@@ -177,8 +386,54 @@ def main(args):
     runner = Runner(config)
     # actor_state_dict = torch.load(str(model_dir) + '/actor.pt')
     # runner.policy.actor.load_state_dict(actor_state_dict)
-    runner.render(False)
-    
+
+    # === CBF evaluation (added) — attach the metrics collector and (optionally)
+    # the safety filter to the runner before rendering. No-op when --cbf_eval
+    # is not set, so the original path is untouched. ===
+    _attach_cbf_eval(runner, all_args, device)
+    # === end CBF evaluation ===
+
+    # For a CBF eval run, default to metrics-only mode: the per-step frame (a
+    # 700x700 draw every step) is skipped, but every metric is computed exactly
+    # the same, so the numbers are identical to runner.render(False) while the run
+    # is far faster and carries no risk of the render-buffer OOM. Pass --cbf_show
+    # to draw the frame anyway (watch it live, or save the GIF with --save_gifs).
+    # A plain (non-CBF) invocation still renders as the original did.
+    _cbf_metrics_only = (bool(getattr(all_args, "cbf_eval", False))
+                         and not getattr(all_args, "cbf_show", False))
+    # When watching a CBF run, use the live window (envs.render('human')) rather
+    # than accumulating GIF frames: it shows exactly the same thing, step for step,
+    # but holds no frame buffer, so a long watched run can't hit the OOM that GIF
+    # saving caused earlier.
+    if getattr(all_args, "cbf_eval", False) and getattr(all_args, "cbf_show", False):
+        all_args.save_gifs = False
+    runner.render(get_metrics=_cbf_metrics_only)
+
+    # --- adaptive-alpha diagnostics (sign-convention + behaviour check) --------
+    _filt = getattr(runner, "cbf_eval_filter", None)
+    if _filt is not None and (getattr(_filt, "adaptive_alpha", False)
+                              or getattr(_filt, "adaptive_horizon", False)):
+        st = _filt.adaptive_stats
+        n = max(1, st["calls"])
+        mean_alpha = st["sum_alpha"] / n
+        mean_min_ang = st["sum_min_ang"] / n
+        frac_ramped = st["ramped"] / n
+        min_ang = st["min_min_ang"] if st["min_min_ang"] != float("inf") else float("nan")
+        _hz_part = ""
+        if getattr(_filt, "adaptive_horizon", False):
+            mean_hz = st["sum_horizon"] / n
+            _hz_part = (f" mean_horizon={mean_hz:.2f} min_horizon={st['min_horizon']} "
+                        f"(h {_filt.horizon}->{_filt.h_min})")
+        print(f"[cbf-adaptive] agent-steps={st['calls']} "
+              f"ramped={frac_ramped:.1%} mean_alpha={mean_alpha:.3f} "
+              f"max_alpha={st['max_alpha']:.3f} "
+              f"mean_min_angle={mean_min_ang:.3f}rad min_min_angle={min_ang:.3f}rad "
+              f"(ell_thresh={_filt.ell_thresh}, ell_hi={_filt.ell_hi}, "
+              f"heading_gate={_filt.heading_gate}){_hz_part}")
+        print("[cbf-adaptive] SIGN CHECK: converging scenario (merge) should show a "
+              "HIGH ramped%% and SMALL min_angle; free-flow (sequential) LOW ramped%% "
+              "and larger angles. If reversed, re-run with --cbf_adaptive_sign -1.")
+
     # post process
     envs.close()
 

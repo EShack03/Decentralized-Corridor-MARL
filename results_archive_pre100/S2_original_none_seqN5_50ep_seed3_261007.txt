@@ -1,0 +1,28 @@
+# CBF eval result [S2]  2026-10-07 13:39:51.506463
+# RAW BASELINE (no filter)  (computed inside the original render() loop)
+# N=5  episodes=50  seed=3  scenario=three_phase_graph_sequential
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [S2] - BASELINE (no filter)  (N=5, episodes=50, seed=3)
+==============================================================
+metric                                   value
+collisions (LoS)                        12.800
+  collisions cross-check                12.760
+mean success rate                       88.40%
+corridor conformance                    99.14%
+collision-free episodes                  48.0%
+min separation (km)                      0.014
+mean closest approach (km)               0.154
+max intrusion depth (km)                 0.035
+integrated intrusion (km.st)             0.695
+near-miss rate %                          6.06
+spacing violations %                      5.63
+throughput (agents/min)                  2.771
+completion time (s)                     114.84
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   7.020
+collisions outside corridor              5.740
+max intrusion in (km)                    0.031
+max intrusion out (km)                   0.031

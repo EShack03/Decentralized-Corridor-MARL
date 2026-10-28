@@ -123,10 +123,8 @@ class Scenario(BaseScenario):
 		self.steps_in_corridor = np.zeros(self.num_agents)
 
 		self.current_tube = np.zeros(self.num_agents, dtype=int)
-		self.max_tubes = 18
+		self.max_tubes = 4   # merge arms (0,1) + merged stem (2) + 90-deg turn (3)
 		self.tube_choice = 0
-		# Per-agent route: ordered list of tube indices to traverse
-		self.tube_route = [[] for _ in range(self.num_agents)]
 
 		# create heatmap matrix to determine the goal agent pairs
 		self.goal_reached = np.full(self.num_agents, -1)
@@ -275,9 +273,7 @@ class Scenario(BaseScenario):
 		self.steps_in_corridor = np.zeros(self.num_agents)
 
 		self.current_tube = np.zeros(self.num_agents, dtype=int)
-		self.max_tubes = 18
 		self.tube_choice = 0
-		self.tube_route = [[] for _ in range(self.num_agents)]
 
 		self.agent_dist_traveled = np.zeros(self.num_agents)
 		self.agent_time_taken = np.zeros(self.num_agents)
@@ -352,79 +348,65 @@ class Scenario(BaseScenario):
 
 	def random_scenario(self, world):
 		"""
-		Randomly place agents and landmarks.
-		Agents are distributed across 3 entry points (A, B, C) with
-		8 route variants through the combined corridor network.
-
-		Routes:
-		  0: A→Right   [0,1,2,3, 5, 12,13,14, 17]
-		  1: B→Right   [4,       5, 12,13,14, 17]
-		  2: CL→Right  [6,7,9,      11,12,13,14, 17]
-		  3: CR→Right  [6,8,10,     11,12,13,14, 17]
-		  4: A→Bottom  [0,1,2,3, 5, 12,13,14, 15,16]
-		  5: B→Bottom  [4,       5, 12,13,14, 15,16]
-		  6: CL→Bottom [6,7,9,      11,12,13,14, 15,16]
-		  7: CR→Bottom [6,8,10,     11,12,13,14, 15,16]
+			Randomly place agents and landmarks
 		"""
 
+		# set agents at random positions not colliding with obstacles
 		# Initialize tube parameters
 		self.setup_two_tube_params(world)
 
-		# 8 route variants (3 entries × 2 exits, diamond L/R)
-		all_routes = [
-			[0, 1, 2, 3, 5, 12, 13, 14, 17],       # 0: A → right
-			[4, 5, 12, 13, 14, 17],                 # 1: B → right
-			[6, 7, 9, 11, 12, 13, 14, 17],          # 2: CL → right
-			[6, 8, 10, 11, 12, 13, 14, 17],         # 3: CR → right
-			[0, 1, 2, 3, 5, 12, 13, 14, 15, 16],    # 4: A → bottom
-			[4, 5, 12, 13, 14, 15, 16],             # 5: B → bottom
-			[6, 7, 9, 11, 12, 13, 14, 15, 16],      # 6: CL → bottom
-			[6, 8, 10, 11, 12, 13, 14, 15, 16],     # 7: CR → bottom
-		]
-
 		num_agents_added = 0
 		agents_added = []
+		boundary_thresh = 0.99
 
-		min_sep = max(3.0 * self.separation_distance, 2.0 * self.separation_distance)
-		long_spacing = min_sep * 1.4
-		lateral_spread = 0.5
+		# Staggered queue behind entrance — agents line up along the
+		# corridor axis with guaranteed minimum longitudinal spacing.
+		# Multiple agents may share a longitudinal level if they are
+		# laterally separated beyond the warning zone.
+		min_sep = max(2.0 * self.separation_distance, 1*self.separation_distance)  # beyond warning zone
+		long_spacing = min_sep * 3.0   # 50% extra gap between rows * 1.5
+		lateral_spread = self.world_size * 0.3  # wider lateral spread
+		# Per-episode spawn RNG seeded off the same reset counter as the turn, so
+		# episode k's spawn is bit-identical across every config AND stage — a
+		# different policy cannot desync it via the global np.random stream.
+		_spawn_rng = np.random.RandomState(self._reset_count + 7919)
 
-		# Count how many agents per entry for staggering
-		entry_count = {0: 0, 4: 0, 6: 0}  # start_tube → count so far
+		while True:
+			if num_agents_added == self.num_agents:
+				break
 
-		while num_agents_added < self.num_agents:
-			route_idx = num_agents_added % len(all_routes)
-			route = all_routes[route_idx]
-			start_tube = route[0]
-
+			start_tube = num_agents_added % 2
+			current_tube = world.tube_params[start_tube]
 			self.current_tube[num_agents_added] = start_tube
-			self.tube_route[num_agents_added] = list(route)
 
-			# Place agent behind its entry tube's entrance
-			current_tube_params = world.tube_params[start_tube]
-			corridor_e = current_tube_params['e']
-			corridor_n = current_tube_params['n']
-			entrance = current_tube_params['entrance']
+			# Place agents behind their corridor entrance using corridor frame
+			corridor_e = current_tube['e']  # unit vec: entrance → exit
+			corridor_n = current_tube['n']  # unit vec: left-hand normal
+			entrance = current_tube['entrance']
 
-			# Stagger by entry count for this entry point
-			idx_in_entry = entry_count.get(start_tube, 0)
-			entry_count[start_tube] = idx_in_entry + 1
-
-			along_offset = -(idx_in_entry + 1) * long_spacing
-			lateral_jitter = np.random.uniform(-1.0, 1.0) * lateral_spread
-			along_jitter = np.random.uniform(-0.2, 0.2) * long_spacing
+			# Longitudinal offset: each successive agent is farther behind
+			along_offset = -(num_agents_added + 1) * long_spacing
+			# Wider lateral jitter — allows 2-3 agents at the same depth
+			lateral_jitter = _spawn_rng.uniform(-1.0, 1.0) * lateral_spread
+			# Small longitudinal jitter (won't collapse the ordering)
+			along_jitter = _spawn_rng.uniform(-0.2, 0.2) * long_spacing
 
 			random_pos = (entrance
 						  + (along_offset + along_jitter) * corridor_e
 						  + lateral_jitter * corridor_n)
 
-			# # Clamp to world bounds
-			# hw = self.world_size / 2.0 * 0.95
-			# random_pos = np.clip(random_pos, -hw, hw)
+			agent_size = world.agents[num_agents_added].size
+			obs_collision = self.is_obstacle_collision(random_pos, agent_size, world)
+			if obs_collision:
+				lateral_jitter = _spawn_rng.uniform(-1.0, 1.0) * lateral_spread * 0.5
+				random_pos = (entrance
+							  + (along_offset + along_jitter) * corridor_e
+							  + lateral_jitter * corridor_n)
 
 			world.agents[num_agents_added].state.p_pos = random_pos
+			# Initialize heading toward the corridor entrance
 			corridor_heading = np.arctan2(corridor_e[1], corridor_e[0])
-			init_heading = corridor_heading + np.random.uniform(-np.pi/6, np.pi/6)
+			init_heading = corridor_heading + _spawn_rng.uniform(-np.pi/6, np.pi/6)
 			world.agents[num_agents_added].state.reset_velocity(theta=init_heading)
 			world.agents[num_agents_added].state.c = np.zeros(world.dim_c)
 			world.agents[num_agents_added].status = False
@@ -434,11 +416,11 @@ class Scenario(BaseScenario):
 		#####################################################
 
 		self.agent_id_updated = np.arange(self.num_agents)
-		# Compute virtual goal positions — each agent's goal is past the LAST tube in its route
+		# Compute virtual goal positions (no physical landmark entities)
 		self.landmark_poses = np.zeros((self.num_agents, 2), dtype=np.float32)
 		for agent in world.agents:
-			last_tube_idx = self.tube_route[agent.id][-1]
-			self.landmark_poses[self.goal_match_index[agent.id]] = self._goal_pos_for_tube(world.tube_params[last_tube_idx])
+			agent_tube = world.tube_params[self.current_tube[agent.id]]
+			self.landmark_poses[self.goal_match_index[agent.id]] = self._goal_pos_for_tube(agent_tube)
 
 		self.landmark_poses_occupied = np.zeros(self.num_agents)
 		self.landmark_poses_updated = self.landmark_poses.copy()
@@ -451,217 +433,134 @@ class Scenario(BaseScenario):
 				self.min_time(agent, world)
 		#####################################################
 
-	# setup combined corridor network: 18 tubes
+	# setup two branch tubes and a stem tube in Y-shaped orientation
 	def setup_two_tube_params(self, world):
 		"""
-		Combined scenario: 18 tubes (T0–T17).
-
-		Topology:
-		  Entry A (C-shape)        Entry B         Entry C (diamond)
-		    T0 → T1 → T2 → T3       T4            T6 -> split T7,T8
-		                     \      /                    -> merge T9,T10
-		                     MERGE A                      T11
-		                       T5                          |
-		                       MERGE B ←──────────────────+
-		                              |
-		                        T12,T13,T14  (C-shape)
-		                              |
-		                            SPLIT
-		                          /       |
-		                    T15,T16        T17
-		                    EXIT(v)       EXIT(->)
-
-		T2 and T3 are nearly parallel (same direction).
-		T3 and T4 merge at MERGE A → T5.
-
-		Routes (8 variants):
-		  A→R:  [0,1,2,3, 5, 12,13,14, 17]
-		  B→R:  [4,       5, 12,13,14, 17]
-		  CL→R: [6,7,9,      11,12,13,14, 17]
-		  CR→R: [6,8,10,     11,12,13,14, 17]
-		  A→B:  [0,1,2,3, 5, 12,13,14, 15,16]
-		  B→B:  [4,       5, 12,13,14, 15,16]
-		  CL→B: [6,7,9,      11,12,13,14, 15,16]
-		  CR→B: [6,8,10,     11,12,13,14, 15,16]
+		Set up two branch tubes and a stem tube in a Y-shaped configuration.
+		Two branches converge from upper-left and upper-right into a
+		downward stem corridor — like a Y instead of a T.
+		branch_half_angle controls how wide the fork is (π/2 = T-shape, 0 = straight).
 		"""
+		# Initialize tube list
 		world.tube_params = []
-		tw = 0.3       # tube width
-		ws = self.world_size   # 14
-		gap = 0.2      # gap between tube ends at junctions
+		
+		# Calculate tube width based on agents
+		# tube_width = max(
+		# 	3 * world.agents[0].size * 2.5,
+		# 	self.world_size * 0.15
+		# )
+		tube_width = 0.3
 
-		# Helper: build a tube from entrance → exit positions
-		def _make_tube(ent, ext):
-			d = ext - ent
-			length = float(np.linalg.norm(d))
-			e_vec = d / length
-			angle = float(np.arctan2(-e_vec[0], -e_vec[1]))
-			rot = np.array([[np.cos(angle), np.sin(angle)],
-							[-np.sin(angle), np.cos(angle)]])
-			return self._build_tube_params(ent, ext, tw, angle, length, rot)
+		merge_point = np.array([0.0, 0.0])
+		branch_length = self.world_size * 0.3
+		stem_length = self.world_size * 0.4
+		gap = self.world_size / 30
 
-		def _dir(a, b):
-			"""Unit direction vector from a to b."""
-			d = b - a
-			return d / np.linalg.norm(d)
+		# Half-angle of the Y fork measured from the stem (downward) axis.
+		# π/2 = old T-shape (perpendicular), π/4 = 45° Y, π/6 = 30° narrow Y
+		branch_half_angle = np.pi / 4  # 45° Y-shape
 
-		def _gapped(pt_from, pt_to, gap_start=True, gap_end=True):
-			"""Create tube between two waypoints, shortened by gap at each end."""
-			dn = _dir(pt_from, pt_to)
-			ent = pt_from + gap * dn if gap_start else pt_from.copy()
-			ext = pt_to   - gap * dn if gap_end   else pt_to.copy()
-			return _make_tube(ent, ext)
+		# Outward direction vectors from merge along each branch
+		left_outward  = np.array([-np.sin(branch_half_angle),  np.cos(branch_half_angle)])
+		right_outward = np.array([ np.sin(branch_half_angle),  np.cos(branch_half_angle)])
 
-		# ============================================================
-		# JUNCTION / WAYPOINT DEFINITIONS
-		# ============================================================
+		# === TUBE 0: Upper-left branch → merge ===
+		tube0_angle = -branch_half_angle
+		entrance0 = merge_point + left_outward * (branch_length + gap)
+		exit0     = merge_point + left_outward * gap
+		rotation_matrix0 = np.array([
+			[np.cos(tube0_angle), np.sin(tube0_angle)],
+			[-np.sin(tube0_angle), np.cos(tube0_angle)]
+		])
+		tube0 = self._build_tube_params(
+			entrance0, exit0, tube_width, tube0_angle,
+			np.linalg.norm(exit0 - entrance0), rotation_matrix0
+		)
+		world.tube_params.append(tube0)
 
-		# --- Entry A: C-shape (T0→T1→T2) top-left ---
-		# Flow: down-left → right-down → down-right toward Merge A
-		# More curved: T0 goes down-left, T1 is the turn, T2 curves down-right
-		WA = [
-			np.array([-4.0,  6.0]),   # entry (top)
-			np.array([-5.2,  4.5]),   # after T0 (down-left — curve outward)
-			np.array([-3.8,  3.2]),   # after T1 (right-down — the turn)
-		]
+		# === TUBE 1: Upper-right branch → merge ===
+		tube1_angle = branch_half_angle
+		entrance1 = merge_point + right_outward * (branch_length + gap)
+		exit1     = merge_point + right_outward * gap
+		rotation_matrix1 = np.array([
+			[np.cos(tube1_angle), np.sin(tube1_angle)],
+			[-np.sin(tube1_angle), np.cos(tube1_angle)]
+		])
+		tube1 = self._build_tube_params(
+			entrance1, exit1, tube_width, tube1_angle,
+			np.linalg.norm(exit1 - entrance1), rotation_matrix1
+		)
+		world.tube_params.append(tube1)
 
-		# --- Midpoint between C-shape end and Y-merge (T2→T3 boundary) ---
-		# T2 goes mostly horizontal-right; T3 angles down-right toward merge
-		WA_mid = np.array([-2.2,  3.0])    # end of T2 / start of T3
+		# === TUBE 2: Merged stem — HARDENED tapered (trapezoidal) ===
+		# Narrow (merge width 0.30) at the merge exit so the post-merge conflict is
+		# NOT relieved, widening LINEARLY to the sequential width (0.75) by the turn
+		# so the 90-deg corner stays negotiable. Lengthened to ws*0.7 to give a
+		# genuine single-file following stretch (vs the easy variant's wide 0.60 stem).
+		stem_w_start = tube_width                      # 0.30 — merge width, at the merge exit
+		stem_w_end   = self.world_size * 0.15          # 0.75 — sequential width, at the turn
+		stem_length  = self.world_size * 0.7
+		tube2_angle = 0.0
+		entrance2 = merge_point + np.array([0.0, -gap])
+		exit2     = merge_point + np.array([0.0, -(stem_length + gap)])
+		rotation_matrix2 = np.array([
+			[np.cos(tube2_angle), np.sin(tube2_angle)],
+			[-np.sin(tube2_angle), np.cos(tube2_angle)]
+		])
+		tube2 = self._build_tube_params(
+			entrance2, exit2, stem_w_start, tube2_angle,
+			np.linalg.norm(exit2 - entrance2), rotation_matrix2, width_end=stem_w_end,
+			goal_offset=self.world_size / 4.0        # sequential's far waypoint: this is the
+			                                          # junction intermediate reward that pulls
+			                                          # agents past the corner -> harder turn
+		)
+		world.tube_params.append(tube2)
 
-		# --- Entry B: Single feeder T4 that merges with T3 at Merge A ---
-		WB_entry = np.array([-0.5,  4.5])   # entry for T4 (shorter than before)
+		# === TUBE 3: 90-deg (sequential) turn off the merged stem -> single goal ===
+		# Mirrors the sequential scenario's L-corner: offset corner then a
+		# perpendicular horizontal corridor. All agents pass through this turn.
+		# Turn direction alternates left/right per episode like the sequential
+		# scenario, but is seeded from an internal reset counter (NOT the global
+		# np.random stream) so every filter config sees the SAME direction on the
+		# same episode — the filter-vs-filter comparison stays paired/fair.
+		self._reset_count = getattr(self, "_reset_count", -1) + 1
+		turn_dir = 1.0 if np.random.RandomState(self._reset_count).rand() < 0.5 else -1.0  # +1 right, -1 left
+		turn_length   = self.world_size * 0.3
+		corner_offset = self.world_size / 6.0
+		tube3_angle = np.pi / 2                      # horizontal
+		entrance3 = exit2 + np.array([turn_dir * corner_offset, -corner_offset])
+		exit3     = entrance3 + np.array([turn_dir * turn_length, 0.0])
+		rotation_matrix3 = np.array([
+			[np.cos(tube3_angle), np.sin(tube3_angle)],
+			[-np.sin(tube3_angle), np.cos(tube3_angle)]
+		])
+		tube3 = self._build_tube_params(
+			entrance3, exit3, stem_w_end, tube3_angle,
+			np.linalg.norm(exit3 - entrance3), rotation_matrix3,
+			goal_offset=self.world_size / 4.0        # sequential's far waypoint (ws/4) for the turn
+		)
+		world.tube_params.append(tube3)
 
-		# --- Merge A junction (T3 + T4 form Y-merge here → T5) ---
-		J_MA = np.array([-1.0,  1.8])
+		# Set progress gain based on average tube length
+		avg_length = (np.linalg.norm(exit0 - entrance0) + np.linalg.norm(exit1 - entrance1)
+					  + np.linalg.norm(exit2 - entrance2) + np.linalg.norm(exit3 - entrance3)) / 4.0
+		self.progress_gain = self.goal_rew / (avg_length * 10)
 
-		# --- Merge B junction (T5-from-MA + T11-from-diamond) ---
-		J_MB = np.array([ 0.5,  0.5])
-
-		# --- Entry C: Diamond (T6-T10) tilted toward Merge B ---
-		WD_entry = np.array([ 2.2,  5.0])
-		# Diamond axis points toward Merge B
-		_dax = J_MB - WD_entry
-		_da_len = float(np.linalg.norm(_dax))
-		_da_dir = _dax / _da_len                       # unit axis direction
-		_da_perp = np.array([-_da_dir[1], _da_dir[0]]) # left-hand normal
-
-		stem_len = 1.3       # T6 length (entry → split)
-		split_half = np.pi / 7   # ±25° branch spread
-		split_bl = 1.2           # branch length
-
-		WD_split = WD_entry + stem_len * _da_dir
-
-		# Rotate axis_dir by ±split_half for branch directions
-		_c, _s = np.cos(split_half), np.sin(split_half)
-		_left_dir  = np.array([ _da_dir[0]*_c - _da_dir[1]*_s,
-								_da_dir[0]*_s + _da_dir[1]*_c])
-		_right_dir = np.array([ _da_dir[0]*_c + _da_dir[1]*_s,
-								-_da_dir[0]*_s + _da_dir[1]*_c])
-
-		WD_left  = WD_split + split_bl * _left_dir
-		WD_right = WD_split + split_bl * _right_dir
-
-		# Diamond merge: on axis, branches converge symmetrically
-		WD_merge = WD_entry + (stem_len + 2.0 * split_bl * np.cos(split_half)) * _da_dir
-
-		# --- Middle C-shape (T12→T13→T14) ---
-		WC = [
-			np.array([-0.3, -1.0]),   # after T12 (more vertical from Merge B)
-			np.array([-1.8, -2.0]),   # after T13 (nearly vertical down)
-		]
-
-		# --- Final split junction ---
-		J_SPLIT = np.array([-0.5, -3.2])   # T14 goes bottom-right from WC[1]
-
-		# --- Right exit endpoint ---
-		W17_end = np.array([ 3.0, -3.4])   # T17 horizontal right from split
-
-		# --- Bottom exit waypoints ---
-		W15_end = np.array([-1.2, -4.5])
-		W16_end = np.array([-3.0, -6.0])
-
-		# ============================================================
-		# BUILD TUBES T0 – T17  (order matters for route indices)
-		# ============================================================
-
-		# T0: Entry A — curves down-left (no gap at entrance)
-		world.tube_params.append(_gapped(WA[0], WA[1], gap_start=False, gap_end=True))
-
-		# T1: Entry A curve — the turn (right-down)
-		world.tube_params.append(_gapped(WA[1], WA[2]))
-
-		# T2: C-shape — extends mostly horizontal-right from T1's end
-		world.tube_params.append(_gapped(WA[2], WA_mid))
-
-		# T3: Angles down-right toward Y-merge with T4
-		world.tube_params.append(_gapped(WA_mid, J_MA))
-
-		# T4: Entry B → Y-merge — no gap at entrance (arrives from above-right)
-		world.tube_params.append(_gapped(WB_entry, J_MA, gap_start=False, gap_end=True))
-
-		# T5: Merge A → Merge B
-		world.tube_params.append(_gapped(J_MA, J_MB))
-
-		# T6: Entry C stem — no gap at entrance
-		world.tube_params.append(_gapped(WD_entry, WD_split, gap_start=False, gap_end=True))
-
-		# T7: Diamond left split branch
-		world.tube_params.append(_gapped(WD_split, WD_left))
-
-		# T8: Diamond right split branch
-		world.tube_params.append(_gapped(WD_split, WD_right))
-
-		# T9: Diamond left merge branch (WD_left → WD_merge)
-		world.tube_params.append(_gapped(WD_left, WD_merge))
-
-		# T10: Diamond right merge branch (WD_right → WD_merge)
-		world.tube_params.append(_gapped(WD_right, WD_merge))
-
-		# T11: Diamond exit → Merge B
-		world.tube_params.append(_gapped(WD_merge, J_MB))
-
-		# T12: Merge B → C-shape mid 1
-		world.tube_params.append(_gapped(J_MB, WC[0]))
-
-		# T13: C-shape mid
-		world.tube_params.append(_gapped(WC[0], WC[1]))
-
-		# T14: C-shape → final split
-		world.tube_params.append(_gapped(WC[1], J_SPLIT))
-
-		# T15: Split → bottom mid
-		world.tube_params.append(_gapped(J_SPLIT, W15_end))
-
-		# T16: Bottom mid → bottom exit (no gap at exit)
-		world.tube_params.append(_gapped(W15_end, W16_end, gap_start=True, gap_end=False))
-
-		# T17: Split → right exit (no gap at exit)
-		world.tube_params.append(_gapped(J_SPLIT, W17_end, gap_start=True, gap_end=False))
-
-		# Progress gain
-		total_L = sum(float(t['L']) for t in world.tube_params)
-		avg_L = total_L / len(world.tube_params)
-		self.progress_gain = self.goal_rew / (avg_L * 10)
+		# # --- Debug: print tube geometry ---
+		# for i, t in enumerate(world.tube_params):
+		# 	print(f"Tube {i}: entrance={t['entrance']}, exit={t['exit']}, "
+		# 		  f"e={t['e']}, n={t['n']}, L={t['L']:.3f}, angle={t['angle']:.3f}")
 
 	def _goal_pos_for_tube(self, tube):
 		"""Compute the landmark/goal position for a given tube (placed past its exit along corridor axis)."""
-		# Place goal beyond exit along the corridor direction
-		offset = self.world_size / 12
+		# Place goal beyond exit; per-tube override via 'goal_offset' (turn uses sequential's ws/4,
+		# merge tubes keep merge's ws/12) so each half matches its source scenario.
+		offset = tube.get('goal_offset', None)
+		if offset is None:
+			offset = self.world_size / 12
 		return np.array(tube['exit']) + offset * np.array(tube['e'])
 
-	def _next_tube_for_agent(self, agent_id):
-		"""Return the next tube index in this agent's route, or None if on the last tube."""
-		route = self.tube_route[agent_id]
-		current = self.current_tube[agent_id]
-		try:
-			idx = route.index(current)
-			if idx < len(route) - 1:
-				return route[idx + 1]
-		except ValueError:
-			pass
-		return None
-
-	def _build_tube_params(self, entrance, exit, width, angle, length, rotation_matrix):
+	def _build_tube_params(self, entrance, exit, width, angle, length, rotation_matrix, width_end=None, goal_offset=None):
 		"""
 		Helper function to build tube parameters dictionary.
 		Reusable for creating multiple tubes with consistent structure.
@@ -699,14 +598,12 @@ class Scenario(BaseScenario):
 		n_vec = np.array([-corridor_vec[1], corridor_vec[0]], dtype=np.float32)
 		
 		# Full-width entrance gate settings (tunable)
-		# Wider back-ratio so agents arriving from an angled feeder tube
-		# still register as entering through the gate.
-		self.gate_front_ratio = getattr(self, 'gate_front_ratio', 0.12)  # inside tube
-		self.gate_back_ratio = getattr(self, 'gate_back_ratio', 0.15)    # just outside entrance
+		self.gate_front_ratio = getattr(self, 'gate_front_ratio', 0.08)  # inside tube
+		self.gate_back_ratio = getattr(self, 'gate_back_ratio', 0.02)    # just outside entrance
 		
 		# Full-width exit gate settings (tunable)
-		self.exit_back_ratio = getattr(self, 'exit_back_ratio', 0.05)    # inside tube near exit
-		self.exit_front_ratio = getattr(self, 'exit_front_ratio', 0.15)  # just outside exit	
+		self.exit_back_ratio = getattr(self, 'exit_back_ratio', 0.02)    # inside tube near exit
+		self.exit_front_ratio = getattr(self, 'exit_front_ratio', 0.08)  # just outside exit	
 		
 		return {
 			'entrance': entrance,
@@ -722,6 +619,8 @@ class Scenario(BaseScenario):
 			'n': n_vec,
 			'L': L,
 			'half_width': float(width) * 0.5,
+			'half_width_end': float(width_end if width_end is not None else width) * 0.5,
+			'goal_offset': goal_offset,
 			'gate_front_ratio': self.gate_front_ratio,
 			'gate_back_ratio': self.gate_back_ratio,
 			'exit_back_ratio': self.exit_back_ratio,
@@ -740,12 +639,18 @@ class Scenario(BaseScenario):
 		r = np.asarray(pos, dtype=np.float32) - entrance  # r: 2D vector from the tube entrance to the queried position, in world coordinates. r = pos − entrance.
 		s = float(np.dot(r, e))  # s is the along-tube coordinate from the entrance plane (s=0 at the entrance, s>0 inside the tube, s<0 before the entrance).
 		y = float(np.dot(r, n))  # y is the signed lateral offset from the tube centerline (y=0 on centerline, |y| increases outward).
+		# Tapered tubes: half-width varies linearly from half_width (s=0) to half_width_end (s=L).
+		# Constant-width tubes are unaffected (half_width_end == half_width).
+		tp = world.tube_params[current_tube]
+		hw_end = float(tp.get('half_width_end', half_w))
+		if abs(hw_end - half_w) > 1e-9 and L > 1e-9:
+			half_w = half_w + (hw_end - half_w) * float(np.clip(s / L, 0.0, 1.0))
 		return s, y, L, half_w
 
-	def _in_tube_rect(self, s: float, y: float, L: float, half_w: float, eps: float = 0.2) -> bool:
+	def _in_tube_rect(self, s: float, y: float, L: float, half_w: float, eps: float = 0.05) -> bool:
 		return (-eps <= s <= L + eps) and (abs(y) <= half_w + eps)
 	
-	def _in_entrance_gate(self, s: float, y: float, L: float, half_w: float, eps: float = 0.2) -> bool:
+	def _in_entrance_gate(self, s: float, y: float, L: float, half_w: float, eps: float = 0.05) -> bool:
 		"""Full-width gate spanning the entrance edge: s in [-gate_back, +gate_front], |y|<=half_w."""
 		gate_front = float(self.gate_front_ratio) * L
 		gate_back = float(self.gate_back_ratio) * L
@@ -760,7 +665,7 @@ class Scenario(BaseScenario):
 		return float(np.hypot(ds, dy))
 	
 	# Full-width exit gate: s in [L - exit_back, L + exit_front], |y| <= half_w
-	def _in_exit_gate(self, s: float, y: float, L: float, half_w: float, eps: float = 0.2) -> bool:
+	def _in_exit_gate(self, s: float, y: float, L: float, half_w: float, eps: float = 0.05) -> bool:
 		exit_back = float(self.exit_back_ratio) * L
 		exit_front = float(self.exit_front_ratio) * L
 		return (L - exit_back - eps <= s <= L + exit_front + eps) and (abs(y) <= half_w + eps)
@@ -875,6 +780,7 @@ class Scenario(BaseScenario):
 		if dist_to_goal < self.min_dist_thresh and (world.times_required[agent.id] == -1):
 			# print("agent", agent.id, "reached goal",world.dist_left_to_goal[agent.id])
 			world.times_required[agent.id] = world.current_time_step * world.dt
+			# print("time required to reach goal",world.times_required[agent.id])
 			world.dists_to_goal[agent.id] = agent.state.p_dist
 			world.dist_left_to_goal[agent.id] = dist_to_goal
 			self.goal_reached[agent.id] = nearest_landmark
@@ -922,6 +828,7 @@ class Scenario(BaseScenario):
 		self.delta_spacing_sum = np.array(self.delta_spacing)
 		#sum all the values in the list
 		self.delta_spacing_sum = np.sum(self.delta_spacing, axis=0)
+		# print("time required to reach goal",world.times_required[agent.id])
 		# print("self.delta_spacing_sum",self.delta_spacing_sum)
 		# print("self.spacing_violation",np.sum(self.spacing_violation))
 		# print(self.delta_spacing[agent.id]/(self.spacing_violation[agent.id] if self.spacing_violation[agent.id] != 0 else 1))
@@ -944,6 +851,7 @@ class Scenario(BaseScenario):
 			'Delta_spacing': self.delta_spacing_sum /(np.sum(self.spacing_violation) if np.sum(self.spacing_violation) != 0 else 1),
 			'Spacing_violations': self.spacing_violation[agent.id]/(self.steps_in_corridor[agent.id] if self.steps_in_corridor[agent.id] != 0 else 1),
 			'Phase_reached': self.phase_reached[agent.id],
+			'On_last_corridor': self.current_tube[agent.id] == 3,  # Tube 3 (90-deg turn) is the final corridor
 
 
 		}
@@ -1054,7 +962,7 @@ class Scenario(BaseScenario):
 		rew = 0.0
 		current_phase = self.get_agent_phase(agent, world)
 		# if current_phase == 2:
-		print("Agent", agent.id, "phase", current_phase, "previous_phase", agent.previous_phase, "phase_reached", self.phase_reached[agent.id])
+		# print("Agent", agent.id, "phase", current_phase, "previous_phase", agent.previous_phase, "phase_reached", self.phase_reached[agent.id])
 		# print("Goalrew",self.goal_rew, "Collisionrew",self.collision_rew)
 		# Common rewards across all phases
 		# Collision penalties (matching trained scenario)
@@ -1163,16 +1071,14 @@ class Scenario(BaseScenario):
 				rew -= norm_dist_entrance * self.goal_rew * 0.3
 			else:
 				rew -= norm_dist_entrance * self.goal_rew * 0.6
-			print("Agent", agent.id, "distance to entrance edge", dist_to_entrance_edge, "normalized", norm_dist_entrance, "reward", rew)
+
 			# Progress reward toward entrance
 			rew += self.progress_gain * max(delta_proj, -0.05)
-			# print("Agent", agent.id, "delta_proj", delta_proj, "reward after progress", rew)
 			self.prev_proj[agent.id] = s
 			# Reward forward velocity along corridor direction
 			corridor_vec = current_tube['e']
 			forward_speed = float(np.dot(agent.state.p_vel, corridor_vec))
 			rew += self.progress_gain * 0.5 * max(forward_speed, 0.0)
-			# print("Agent", agent.id, "forward_speed", forward_speed, "reward after forward speed", rew)
 
 			# === Heading alignment reward ===
 			corridor_vec = current_tube['e']
@@ -1183,12 +1089,10 @@ class Scenario(BaseScenario):
 			# Penalize lateral approach
 			lateral_norm = abs(y) / (half_w + 1e-9)
 			rew -= lateral_norm * self.formation_rew * 0.1
-			# print("Agent", agent.id, "lateral offset y", y, "normalized", lateral_norm, "reward after lateral penalty", rew)
 
 			# Only enforce alignment when close to entrance
 			if dist_to_entrance_edge < self.world_size * 0.2 and abs(y) < half_w * 1.5:
 				rew -= heading_error * self.formation_rew * 0.5
-				# print("Agent", agent.id, "heading error (radians)", heading_error, "reward after heading penalty", rew)
 			# === Penalize lateral approach (agents must approach along corridor axis) ===
 			# If agent is laterally offset from entrance but trying to enter: penalize
 			# if abs(y) > half_w * 0.8 and s < 0 and s > -self.world_size * 0.1:
@@ -1220,6 +1124,7 @@ class Scenario(BaseScenario):
 				spacing_error += np.abs(diff) if diff < 0 else 0
 			if spacing_error > 0:
 				self.spacing_violation[agent.id] += 1
+				# print(f"Agent {agent.id} spacing violation! error: {spacing_error:.2f} rew", rew, "diff", diff, "desired_spacing", desired_spacing, "dist_front", dist_front if front_agent else "N/A", "dist_back", dist_back if back_agent else "N/A")
 			rew -= spacing_error * self.formation_rew
 			dist_to_exit_edge = self._exit_gate_distance(s, y, L, half_w)
 			# Normalize by tube length so penalty stays bounded
@@ -1237,51 +1142,70 @@ class Scenario(BaseScenario):
 			agent_heading = agent.state.theta
 			heading_error = abs((agent_heading - corridor_heading + np.pi) % (2*np.pi) - np.pi)
 			rew -= heading_error * self.formation_rew * 0.1
-		elif current_phase == 2:
-			next_tube = self._next_tube_for_agent(agent.id)
-			if next_tube is not None:  # More tubes in route → transition
-				self.current_tube[agent.id] = next_tube
-				self.phase_reached[agent.id] = 0
-				agent.previous_phase = 0
-				self.entry_reward_cooldown[agent.id] = 0
-				# Re-initialize progress baseline for the new tube
-				s2, _, _, _ = self._tube_coords(world, agent.state.p_pos, next_tube)
-				self.prev_proj[agent.id] = s2
-				# Move only THIS agent's virtual goal to next tube exit
-				landmark_idx = self.goal_match_index[agent.id]
-				self.landmark_poses[landmark_idx] = self._goal_pos_for_tube(world.tube_params[next_tube])
-				# Bonus for completing a corridor
-				rew += self.goal_rew * 0.5
-				self.prev_goal_dist[agent.id] = np.inf
-				# Recompute tube coords for the NEW tube so downstream checks use correct values
-				s, y, L, half_w = self._tube_coords(world, agent.state.p_pos, next_tube)
-				current_tube = world.tube_params[next_tube]
-				corridor_e = current_tube['e']
-				valid_exit = self._in_exit_gate(s, y, L, half_w)
-				current_phase = 0
-			else:  # Final tube in route → goal-reaching
-				dist_to_goal = np.linalg.norm(agent.state.p_pos - self.landmark_poses[self.goal_match_index[agent.id]])
-				if dist_to_goal < self.min_dist_thresh:
-					if agent.status is False:
-						agent.status = True
-						agent.state.reset_velocity()
-						rew += self.goal_rew*5
-				else:
-					# Normalized distance penalty
-					rew -= dist_to_goal / (self.world_size * 0.5 + 1e-9) * self.goal_rew * 0.5
+		elif current_phase == 2 and self.current_tube[agent.id] in (0, 1):  # Exited tube 0/1 → seamlessly switch to tube 2
+			# Reset phase tracking so the agent sees a fresh Phase 0 for tube 2
+			# print(f"Agent {agent.id} transitioned to tube 2, resetting phase tracking.")
+			self.current_tube[agent.id] = 2
+			self.phase_reached[agent.id] = 0
+			agent.previous_phase = 0
+			self.entry_reward_cooldown[agent.id] = 0
+			# Re-initialize progress baseline for the new tube
+			s2, _, _, _ = self._tube_coords(world, agent.state.p_pos, 2)
+			self.prev_proj[agent.id] = s2
+			# Move only THIS agent's virtual goal to tube 2 exit
+			landmark_idx = self.goal_match_index[agent.id]
+			self.landmark_poses[landmark_idx] = self._goal_pos_for_tube(world.tube_params[2])
+			# Give a small bonus for completing the first corridor
+			rew += self.goal_rew * 0.5
+			# Reset prev_goal_dist so Phase 2 progress reward starts fresh
+			self.prev_goal_dist[agent.id] = np.inf
+			# Recompute tube coords for the NEW tube so downstream penalty checks use correct values
+			s, y, L, half_w = self._tube_coords(world, agent.state.p_pos, 2)
+			current_tube = world.tube_params[2]
+			corridor_e = current_tube['e']
+			valid_exit = self._in_exit_gate(s, y, L, half_w)
+			# Now evaluate as Phase 0 for tube 2
+			current_phase = 0
+		elif current_phase == 2 and self.current_tube[agent.id] == 2:  # Exited merged stem → switch to tube 3 (90-deg turn)
+			# Same seamless hand-off as 0/1 → 2, now stem → turn.
+			self.current_tube[agent.id] = 3
+			self.phase_reached[agent.id] = 0
+			agent.previous_phase = 0
+			self.entry_reward_cooldown[agent.id] = 0
+			s3, _, _, _ = self._tube_coords(world, agent.state.p_pos, 3)
+			self.prev_proj[agent.id] = s3
+			landmark_idx = self.goal_match_index[agent.id]
+			self.landmark_poses[landmark_idx] = self._goal_pos_for_tube(world.tube_params[3])
+			rew += self.goal_rew * 0.5
+			self.prev_goal_dist[agent.id] = np.inf
+			s, y, L, half_w = self._tube_coords(world, agent.state.p_pos, 3)
+			current_tube = world.tube_params[3]
+			corridor_e = current_tube['e']
+			valid_exit = self._in_exit_gate(s, y, L, half_w)
+			current_phase = 0
+		elif current_phase == 2 and self.current_tube[agent.id] == 3:  # Post-tube phase (final corridor)
+			dist_to_goal = np.linalg.norm(agent.state.p_pos - self.landmark_poses[self.goal_match_index[agent.id]])
+			if dist_to_goal < self.min_dist_thresh:
+				if agent.status is False:
+					agent.status = True
+					agent.state.reset_velocity()
+					rew += self.goal_rew*5
+			else:
+				# Normalized distance penalty
+				rew -= dist_to_goal / (self.world_size * 0.5 + 1e-9) * self.goal_rew * 0.5
 
-					agent_heading = agent.state.theta
-					corridor_heading = np.arctan2(corridor_e[1], corridor_e[0])
-					heading_error = abs((agent_heading - corridor_heading + np.pi) % (2 * np.pi) - np.pi)
-					heading_thresh = float(self.config_class.GOAL_HEADING_THRESHOLD)
-					if heading_error > heading_thresh:
-						rew -= (heading_error - heading_thresh) * self.formation_rew * 0.02
+				agent_heading = agent.state.theta
+				corridor_heading = np.arctan2(corridor_e[1], corridor_e[0])
+				heading_error = abs((agent_heading - corridor_heading + np.pi) % (2 * np.pi) - np.pi)
+				heading_thresh = float(self.config_class.GOAL_HEADING_THRESHOLD)
+				if heading_error > heading_thresh:
+					rew -= (heading_error - heading_thresh) * self.formation_rew * 0.02
 
-					# Progress reward toward goal
-					if np.isfinite(self.prev_goal_dist[agent.id]):
-						delta_goal = self.prev_goal_dist[agent.id] - dist_to_goal
-						rew += self.progress_gain * 3.0 * max(delta_goal, -0.1)
-					self.prev_goal_dist[agent.id] = dist_to_goal
+				# Progress reward toward goal
+				if np.isfinite(self.prev_goal_dist[agent.id]):
+					delta_goal = self.prev_goal_dist[agent.id] - dist_to_goal
+					rew += self.progress_gain * 3.0 * max(delta_goal, -0.1)
+				self.prev_goal_dist[agent.id] = dist_to_goal
 
 
 		# print("Agent.status",agent.status)
@@ -1313,9 +1237,9 @@ class Scenario(BaseScenario):
 			# print(f"Agent {agent.id} skipped corridor (s={s:.2f} > L={L:.2f}): penalty {self.goal_rew}")
 		
 		# if current_phase == 2:
-		print(f"Agent {agent.id} total reward: ", rew)
-		# # # input("Reward calculation complete for agent {}".format(agent.id))
-		input("Press Enter to continue...")
+		# print(f"Agent {agent.id} total reward: ", rew)
+		# # input("Reward calculation complete for agent {}".format(agent.id))
+		# input("Press Enter to continue...")
 
 		return np.clip(rew, -4*self.collision_rew, self.goal_rew*5)
 
@@ -1415,7 +1339,7 @@ class Scenario(BaseScenario):
 		], axis=0)
 		# print("Agent", agent.id, "tube_params", tube_params, "np.array([agent.state.speed,agent_speed])", np.array([agent.state.speed, agent_speed]))
 
-		print("Agent", agent.id, "tube coords s,y,L,half_w:", s, y, L, half_w)
+		# print("Agent", agent.id, "tube coords s,y,L,half_w:", s, y, L, half_w)
 		# --- Assemble final obs in the SAME field order as before ---
 		# [agent_vel(2), goal_pos(2), nearest_neighbors(4), tube_params(8)] = 16 dims
 		return np.concatenate([
@@ -1512,24 +1436,6 @@ class Scenario(BaseScenario):
 			Nodes are entities in the environment
 			Edges are constructed by thresholding distances
 		"""
-		# --- Force-forward for newly spawned entry agents: nudge them into their corridor
-		for agent in world.agents:
-			if getattr(agent, 'force_steps', 0) > 0:
-				try:
-					current_tube_idx = int(self.current_tube[agent.id])
-				except Exception:
-					continue
-				if current_tube_idx < 0 or current_tube_idx >= len(world.tube_params):
-					continue
-				current_tube = world.tube_params[current_tube_idx]
-				e = np.asarray(current_tube['e'], dtype=np.float32)
-				# small forward nudge (scaled to separation_distance)
-				step_len = 0.25 * float(self.separation_distance)
-				agent.state.p_pos = agent.state.p_pos + e * step_len
-				# also give a small forward velocity so dynamics don't immediately push backward
-				agent.state.p_vel = e * (0.5 * float(getattr(self, 'max_speed', 0.1) or 0.1))
-				agent.force_steps = max(0, agent.force_steps - 1)
-
 		dists = world.cached_dist_mag
 		# just connect the ones which are within connection 
 		# distance and do not connect to itself
@@ -1651,17 +1557,17 @@ if __name__ == "__main__":
 	# makeshift argparser
 	class Args:
 		def __init__(self):
-			self.num_agents:int=6
-			self.world_size=14
+			self.num_agents:int=3
+			self.world_size=2
 			self.num_scripted_agents=0
-			self.num_obstacles:int=0
+			self.num_obstacles:int=3
 			self.collaborative:bool=False 
 			self.max_speed:Optional[float]=2
 			self.collision_rew:float=5
 			self.goal_rew:float=50
 			self.min_dist_thresh:float=0.1
 			self.use_dones:bool=True
-			self.episode_length:int=100
+			self.episode_length:int=25
 			self.max_edge_dist:float=1
 			self.graph_feat_type:str='relative'
 			self.fair_wt=1

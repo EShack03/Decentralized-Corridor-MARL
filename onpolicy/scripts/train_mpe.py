@@ -102,7 +102,46 @@ def parse_args(args, parser):
     help="Type of vehicle dynamics to use.")
     '''
 
-
+    # ---- Stage-3B: joint barrier + policy training (all off by default, so
+    # omitting these leaves training byte-for-byte identical to the baseline) ----
+    parser.add_argument("--cbf_train_barrier", action="store_true", default=False,
+                        help="Co-train the CBF barrier alongside the policy (Part A).")
+    parser.add_argument("--cbf_barrier", type=str, default=None,
+                        help="Path to a Stage-1 barrier .pt to initialise from "
+                        "(the barrier then keeps learning). If omitted, the "
+                        "co-trained barrier starts from random init.")
+    parser.add_argument("--cbf_reward_coef", type=float, default=0.0,
+                        help="lambda for barrier reward shaping (Part B). 0 = off.")
+    parser.add_argument("--cbf_reward_margin", type=float, default=2.0,
+                        help="Shaping margin: penalise while h_ego < this value.")
+    parser.add_argument("--cbf_loss_coef", type=float, default=1.0,
+                        help="Weight on the barrier CBF loss in the barrier update.")
+    parser.add_argument("--cbf_lr", type=float, default=1e-3,
+                        help="Learning rate for the barrier optimiser.")
+    parser.add_argument("--cbf_alpha", type=float, default=1.0,
+                        help="alpha in the barrier condition h_dot + alpha*h >= 0.")
+    parser.add_argument("--cbf_eps", type=float, default=0.02,
+                        help="Margin epsilon inside the CBF classification losses.")
+    parser.add_argument("--cbf_margin", type=float, default=2.0,
+                        help="Distance margin (x separation) for safe/unsafe labels.")
+    parser.add_argument("--cbf_hidden", type=int, default=64,
+                        help="Hidden size of the co-trained barrier GNN.")
+    parser.add_argument("--cbf_layers", type=int, default=2,
+                        help="Number of layers in the co-trained barrier GNN.")
+    parser.add_argument("--cbf_filter_in_loop",
+                        type=lambda x: bool(strtobool(x)), default=True,
+                        help="Run the ego-frame CBF filter in the training "
+                        "rollout (shielded RL, as in 3A). Set False to train "
+                        "barrier+policy with NO filter mask (pure reward-shaping "
+                        "ablation). Only has effect when --cbf_train_barrier.")
+    parser.add_argument("--cbf_filter_eps", type=float, default=0.0,
+                        help="Slack in the filter's barrier-condition test "
+                        "(separate from --cbf_eps, which is the loss margin).")
+    parser.add_argument("--cbf_neighbour_model", type=str, default="static",
+                        choices=["static", "constant_velocity"],
+                        help="Neighbour motion the filter assumes over its "
+                        "one-step lookahead. static keeps Stages 2/3A/3B "
+                        "consistent; constant_velocity is the committed upgrade.")
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -240,6 +279,36 @@ def main(args):
         from onpolicy.runner.separated.mpe_runner import MPERunner as Runner
 
     runner = Runner(config)
+
+    # ---- Stage-3B: attach the ego-frame CBF safety filter to the runner ----
+    # Built AFTER the runner so it shares the trainer's cbf_barrier instance:
+    # the filter then evaluates the SAME barrier that co-learns during 3B, so
+    # filter / reward-shaping / barrier-loss all use one consistent barrier.
+    if (getattr(all_args, "cbf_train_barrier", False) and
+            getattr(all_args, "cbf_filter_in_loop", True)):
+        from onpolicy.algorithms.utils.cbf_filter import (
+            EgoCBFFilter, build_primitive_table)
+        from multiagent.config import AirTaxiConfig as _AT
+        prim_table = build_primitive_table(
+            _AT.MOTION_PRIM_ACCEL_OPTIONS, _AT.MOTION_PRIM_ANGRATE_OPTIONS,
+            _AT.ACCEL_MIN, _AT.ACCEL_MAX, _AT.ANGULAR_RATE_MAX)
+        runner.cbf_filter = EgoCBFFilter(
+            barrier=runner.trainer.cbf_barrier,
+            prim_table=prim_table,
+            sep=_AT.COLLISION_DISTANCE,
+            dt=_AT.DT,
+            v_min=_AT.V_MIN, v_max=_AT.V_MAX,
+            alpha=getattr(all_args, "cbf_alpha", 1.0),
+            eps=getattr(all_args, "cbf_filter_eps", 0.0),
+            num_agents=all_args.num_agents,
+            neighbour_model=getattr(all_args, "cbf_neighbour_model", "static"),
+            fallback="least_unsafe",
+            device=device)
+        print(f"[3B] ego-frame CBF filter attached "
+              f"(neighbour_model={getattr(all_args, 'cbf_neighbour_model', 'static')}, "
+              f"alpha={getattr(all_args, 'cbf_alpha', 1.0)}, "
+              f"eps={getattr(all_args, 'cbf_filter_eps', 0.0)})")
+
     if all_args.verbose:
         print_box('Actor Network', 80)
         if type(runner.policy)==list:
