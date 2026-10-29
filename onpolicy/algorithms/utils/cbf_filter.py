@@ -12,20 +12,23 @@ what state they read it from:
     kinematics forward with within-step sub-integration, over a configurable
     horizon. This is the reference implementation.
 
-  * EgoCBFFilter     (ego frame)   — used during TRAINING. Reads only the
-    in-process graph tensors the policy already receives (node_obs / adj / obs /
-    agent_id), so it needs no access to world.agents and works under
+  * EgoCBFFilter     (ego frame)   — used during TRAINING (Stages 3A/3B). Reads
+    only the in-process graph tensors the policy already receives (node_obs /
+    adj / obs / agent_id), so it needs no access to world.agents and works under
     subprocess-vectorised training. One-step lookahead (horizon = 1).
 
-The two were validated to produce bitwise-identical masks on shared inputs (max
-geometric error ~9e-16 km), so a policy trained under EgoCBFFilter is filtered at
-eval by exactly the same rule via CBFSafetyFilter. They were kept in separate
-files during development and are consolidated here; the shared primitive table
+Both apply the same safety rule (barrier condition AND hard separation floor,
+least-unsafe fallback). They differ in the kinematic prediction: the ego-frame
+filter takes ONE step using the end-of-step speed/heading, while the world-frame
+filter sub-integrates each step (20 sub-steps) over a multi-step horizon. The
+predicted positions therefore differ slightly (up to ~3.7 m per step, ~2.4% of
+the 152 m separation, over all 25 primitives). They were kept in separate files
+during development and are consolidated here; the shared primitive table
 (build_primitive_table) is defined once, below, and used by both.
 
 ================================ world-frame (eval) ===========================
 
-CBF safety filter (Stage 2 of Option B).
+CBF safety filter (Stage 2 of Option B, extended with the adaptive ramp).
 
 Given the frozen barrier network (Stage 1) and the current graph, this module
 decides — for each aircraft — which of its 25 discrete motion primitives are
@@ -38,27 +41,33 @@ How a primitive is judged (ego-only lookahead — the decentralised GCBF
 assumption):
   1. Decode the primitive index k -> (dtheta, dv), exactly as
      environment.decode_action_index does for air_taxi.
-  2. Integrate the ego aircraft ONE step with the air_taxi kinematics
-     (multiagent/core.AirTaxiXYState.dstate). Neighbours are propagated according
-     to `neighbour_model`: "static" holds them at their current position;
-     "constant_velocity" advances them along their current heading at their
-     current speed over the lookahead. This gives the ego's and neighbours'
-     predicted next poses.
-  3. Rebuild the ego's row/column of the distance matrix `adj` from those
-     predicted poses (the separation signal the barrier keys on), and update the
-     ego's ego-relative node features with the same rotation transform the
-     scenario uses.
-  4. Evaluate the barrier at the predicted next graph: h_next = barrier(...)[ego].
-  5. Keep the primitive iff the discrete barrier condition holds:
-         h_next - h_now + alpha * h_now >= -eps      (i.e. h_next >= (1-alpha)*h_now - eps)
-     which is the one-step form of  h_dot + alpha*h >= 0.
+  2. Roll the ego aircraft forward with the air_taxi kinematics
+     (multiagent/core.AirTaxiXYState.dstate), holding the primitive constant for
+     `horizon` steps. Neighbours are propagated according to `neighbour_model`:
+     "static" holds them at their current position; "constant_velocity" advances
+     them along their current heading at their current speed.
+  3. At every step, rebuild the ego's row/column of the distance matrix `adj`
+     from the predicted positions (the separation signal the barrier keys on).
+     Node features are NOT re-predicted: the barrier sees the predicted
+     distances with the current relative velocities.
+  4. Evaluate the barrier at the predicted graph: h_t = barrier(...)[ego].
+  5. Keep the primitive iff, at EVERY step of the horizon, the discrete barrier
+     condition holds
+         h_t - h_{t-1} + alpha * h_{t-1} >= -eps
+     (the one-step form of h_dot + alpha*h >= 0) AND the predicted nearest-
+     neighbour distance stays >= the separation minimum (hard floor).
 
 If NO primitive passes for an agent, the mask would be all-zero, which the
-Categorical cannot handle (it renormalises over available actions). In that case
-we fall back to leaving that agent UNFILTERED (all primitives available) and flag
-it, so the "no safe primitive available" rate can be logged — this rate is the
-decision instrument for the escalation ladder (coarser vs finer vs continuous
-action set). Blocking everything would freeze the aircraft and is never safer.
+Categorical cannot handle. The default `least_unsafe` fallback then allows only
+the single primitive that keeps the ego furthest from any other aircraft over
+the horizon; the legacy `unfiltered` fallback (kept for the fallback ablation)
+allows every primitive. Either way the step is flagged, so the "no safe
+primitive available" rate can be logged.
+
+Optional adaptive layer (eval only): a per-agent severity m in [0, 1], computed
+from the conflict geometry (liveness angle, see _adaptive_alpha), ramps alpha up
+(alpha -> alpha_max) and the horizon down (horizon -> h_min). The junction gap
+guard forces m = 0 for any agent outside its corridor tube.
 
 Nothing here trains or modifies the policy or the barrier.
 """
@@ -132,13 +141,6 @@ def step_air_taxi(pos: np.ndarray, theta: float, speed: float,
     return p.astype(np.float32), th, v
 
 
-def _rotate(vec2: np.ndarray, heading: float) -> np.ndarray:
-    """Reproduce scenario.get_rotated_position_from_relative (world -> ego frame)."""
-    c, s = np.cos(heading), np.sin(heading)
-    rot = np.array([[c, s], [-s, c]], dtype=np.float32)
-    return rot @ vec2.astype(np.float32)
-
-
 # ---------------------------------------------------------------------------
 # The filter
 # ---------------------------------------------------------------------------
@@ -179,10 +181,8 @@ class CBFSafetyFilter:
                  alpha=1.0, eps=0.0, horizon=3, fallback="least_unsafe",
                  num_agents=None, neighbour_model="static", device=None,
                  adaptive_alpha=False, alpha_max=2.0, ell_thresh=0.32,
-                 ell_hi=0.80, sense_range=None, adaptive_sign=1.0,
+                 ell_hi=0.80, sense_range=None,
                  heading_gate=0.0, adaptive_horizon=False, h_min=1,
-                 adaptive_gate="heading", path_gate=0.6,
-                 adaptive_stall=False, stall_window=15, stall_thresh=0.15,
                  gap_guard=False):
         self.barrier = barrier
         self.prim_table = prim_table
@@ -207,36 +207,24 @@ class CBFSafetyFilter:
         # according to a local conflict-geometry signal (Chandra et al. 2025
         # "liveness" angle between the line-of-approach and the closing velocity).
         # The look-ahead horizon stays fixed at `self.horizon` for Rung 1. The
-        # hard separation floor (ok_hard, L~328) is alpha-independent, so a higher
-        # alpha only relaxes how aggressively an agent closes WITHIN the safe set;
-        # it can never breach `sep`. See Geometry_Adaptive_Filter_Plan.md.
+        # hard separation floor (ok_hard in _mask_one_agent) is alpha-independent,
+        # so a higher alpha only relaxes how aggressively an agent closes WITHIN
+        # the safe set; it can never breach `sep`. See Geometry_Adaptive_Filter_Plan.md.
         self.adaptive_alpha = bool(adaptive_alpha)
         self.alpha_max = float(alpha_max)
         self.ell_thresh = float(ell_thresh)   # angle (rad) at/below which ramp is full
         self.ell_hi = float(ell_hi)           # angle (rad) above which ramp is off
         self.sense_range = sense_range        # km; None => every other agent counts
-        # +1.0 = corrected sign (converging pair -> SMALL angle); -1.0 flips it.
-        self.adaptive_sign = float(adaptive_sign)
         # heading-difference gate (rad): a neighbour whose heading differs from the
         # ego's by LESS than this is treated as in-line following (same stream) and
         # excluded from the ramp, so the corridor segments stay at base alpha and
         # only crossing/opposing geometry (a junction/merge) drives alpha up.
         # 0.0 disables the gate (reproduces the ungated Rung-1 behaviour).
+        # Known weakness: at a 90 deg bend a leader that has already turned has a
+        # heading far from the follower's, so the gate lets it through and the
+        # follower wrongly ramps to short horizon; the junction gap guard below
+        # removes that case.
         self.heading_gate = float(heading_gate)
-        # in-line / cross-traffic gate selector (which test decides a neighbour is
-        # "same-stream following" and so is excluded from driving the ramp):
-        #   "heading" (legacy, default): the heading-difference test above. Fails
-        #       at a 90 deg bend, where a leader that has already turned has a
-        #       heading far from the follower's, so the follower wrongly ramps to
-        #       short horizon in the one regime that wants long horizon.
-        #   "path": the neighbour's BEARING relative to the ego's own direction of
-        #       travel (see _adaptive_alpha). A leader ahead along the (curving)
-        #       path stays "ahead" through a bend, so it is correctly excluded,
-        #       while cross-traffic at a merge comes in off to the side and still
-        #       drives the ramp. path_gate is the half-angle (rad) of the in-line
-        #       cone (ahead or behind); reuse the old 0.6 as a sensible default.
-        self.adaptive_gate = str(adaptive_gate)
-        self.path_gate = float(path_gate)
         # --- junction gap guard (Variant 1) ------------------------------------
         # When on, suppress the adaptive ramp (force severity m=0 -> deployed long
         # horizon, base alpha) for any agent NOT physically inside its corridor
@@ -247,22 +235,6 @@ class CBFSafetyFilter:
         # untouched. in_tube is supplied per-agent by the runner from the
         # scenario's own is_in_tube (the SAME test as the in/out-corridor metric).
         self.gap_guard = bool(gap_guard)
-        # --- Rung-3 REACTIVE stall trigger (optional) --------------------------
-        # When on, the per-agent ramp severity m is NOT taken from the proactive
-        # geometry signal at all. Instead an external per-agent PROGRESS-STALL flag
-        # (supplied to masks_for_threads as `agent_stalled`, computed from along-
-        # corridor progress by the runner) sets m: m=1 for a stalled agent (ramp to
-        # the permissive short-horizon / high-alpha regime to break a deadlock),
-        # m=0 for a flowing agent (stay at the deployed long horizon / base alpha).
-        # This is the discriminator the geometry gates cannot provide: a genuine
-        # merge deadlock stalls (-> ramp), a flowing bend does not (-> stay long),
-        # so it fixes the sequential-bend regression without the merge collapse the
-        # path gate caused. stall_window / stall_thresh are stored here for the
-        # runner to read and for the diagnostic print; the stall flag itself is
-        # computed runner-side where the corridor frame lives.
-        self.adaptive_stall = bool(adaptive_stall)
-        self.stall_window = int(stall_window)
-        self.stall_thresh = float(stall_thresh)
         # --- Rung-2 geometry-adaptive look-ahead horizon (optional, proactive) --
         # When on, each agent's horizon is ramped DOWN from `self.horizon` toward
         # `h_min` on the SAME conflict-geometry severity m that drives alpha: more
@@ -278,8 +250,7 @@ class CBFSafetyFilter:
                                    sum_horizon=0.0, min_horizon=int(self.horizon))
 
     @torch.no_grad()
-    def masks_for_threads(self, node_obs, adj, agent_world_states, agent_goals=None,
-                          agent_stalled=None, agent_in_tube=None):
+    def masks_for_threads(self, node_obs, adj, agent_world_states, agent_in_tube=None):
         """
         Compute availability masks for every agent in every thread.
 
@@ -291,12 +262,15 @@ class CBFSafetyFilter:
                    ground truth needed to roll a primitive forward; it is read
                    from the env (see the runner hook), NOT reconstructed from the
                    ego-relative node features.
+        agent_in_tube : (n_threads, num_agents) bool or None — per-agent "physically
+                   inside its corridor tube" flag for the junction gap guard
+                   (ignored unless gap_guard is on).
 
         Returns
         -------
         available : (n_threads, num_agents, n_actions) float32 mask (1 = allowed)
         no_safe   : (n_threads, num_agents) bool — True where NO primitive passed
-                    (that agent is left unfiltered; see module docstring)
+                    (the fallback was applied; see module docstring)
         """
         n_threads, num_agents = node_obs.shape[0], node_obs.shape[1]
         num_nodes = node_obs.shape[2]
@@ -307,8 +281,6 @@ class CBFSafetyFilter:
             for a in range(num_agents):
                 mask, none_safe = self._mask_one_agent(
                     node_obs[th, a], adj[th, a], agent_world_states[th], a, num_nodes,
-                    agent_goals_thread=(None if agent_goals is None else agent_goals[th]),
-                    agent_stalled_thread=(None if agent_stalled is None else agent_stalled[th]),
                     agent_in_tube_thread=(None if agent_in_tube is None else agent_in_tube[th]))
                 available[th, a] = mask
                 no_safe[th, a] = none_safe
@@ -334,7 +306,7 @@ class CBFSafetyFilter:
         return p.astype(np.float32), th.astype(np.float32), v.astype(np.float32)
 
     def _adaptive_alpha(self, ego_pos, ego_vel, ego_theta,
-                        nbr_pos, nbr_vel, nbr_theta, ego, ego_goal=None):
+                        nbr_pos, nbr_vel, nbr_theta, ego):
         """Rung-1 proactive, conflict-geometry alpha ramp.
 
         For every other agent j within `sense_range`, measure the angle between
@@ -346,8 +318,8 @@ class CBFSafetyFilter:
         A pair converging head-on gives angle -> 0 (ego heading straight at j,
         gap shrinking); a diverging / passing pair gives angle -> pi. This is the
         corrected sign of Chandra et al.'s liveness angle: small angle == the
-        deadlock-prone, symmetric converging conflict. `adaptive_sign=-1` flips it
-        if a future obs convention inverts the geometry (see the sign-check note).
+        deadlock-prone, symmetric converging conflict (sign convention verified
+        in-env: merge ramps far more than free flow).
 
         The most-converging neighbour sets the agent's severity m in [0,1] via a
         linear ramp from `ell_hi` (off) down to `ell_thresh` (full), and alpha is
@@ -375,39 +347,15 @@ class CBFSafetyFilter:
                 continue
             # in-line / cross-traffic gate: exclude same-stream following so that
             # only crossing/opposing geometry (a junction/merge) drives the ramp.
-            if self.adaptive_gate == "heading" and self.heading_gate > 0.0:
-                # legacy: skip neighbours whose HEADING is close to the ego's.
+            if self.heading_gate > 0.0:
+                # skip neighbours whose HEADING is close to the ego's.
                 dh = float(nbr_theta[j]) - float(ego_theta)
                 dh = abs((dh + np.pi) % (2.0 * np.pi) - np.pi)   # wrap to [0, pi]
                 if dh < self.heading_gate:
                     continue
-            elif self.adaptive_gate == "path" and self.path_gate > 0.0:
-                # path-tangent bearing gate: skip neighbours that lie roughly
-                # AHEAD or BEHIND along the ego's own direction of travel (in-line
-                # flow), keeping only genuine side/cross-traffic. The tangent is
-                # the direction to the ego's current waypoint when supplied (it
-                # curves with the corridor, so a leader around a bend still reads
-                # as "ahead"); otherwise the ego velocity (fine on straights,
-                # weaker only in the ~1-2 steps right at a corner apex).
-                tan = None
-                if ego_goal is not None:
-                    tan = np.asarray(ego_goal, dtype=np.float32) - ego_pos
-                    if float(np.linalg.norm(tan)) < EPS:
-                        tan = None
-                if tan is None:
-                    tan = ego_vel
-                tn = float(np.linalg.norm(tan))
-                if tn >= EPS:                       # no heading at all => don't gate
-                    tan = tan / tn
-                    bn = p_rel / (d + EPS)          # unit bearing to neighbour j
-                    cosb = max(-1.0, min(1.0, float(np.dot(tan, bn))))
-                    rel_bearing = float(np.arccos(cosb))   # 0 = ahead, pi = behind
-                    if (rel_bearing < self.path_gate
-                            or rel_bearing > (np.pi - self.path_gate)):
-                        continue                    # in-line flow -> keep long horizon
             v_rel = ego_vel - nbr_vel[j]          # closing velocity (ego minus j)
             den = d * float(np.linalg.norm(v_rel)) + EPS
-            c = self.adaptive_sign * float(np.dot(p_rel, v_rel)) / den
+            c = float(np.dot(p_rel, v_rel)) / den
             c = max(-1.0, min(1.0, c))
             ang = float(np.arccos(c))             # small => converging / deadlock-prone
             if ang < min_ang:
@@ -420,13 +368,13 @@ class CBFSafetyFilter:
         return alpha_a, min_ang, m
 
     def _mask_one_agent(self, node_obs_a, adj_a, world_states_thread, ego, num_nodes,
-                        agent_goals_thread=None, agent_stalled_thread=None,
                         agent_in_tube_thread=None):
         """
         node_obs_a : (num_nodes, node_feat)  ego agent `ego`'s node features
         adj_a      : (num_nodes, num_nodes)  the (shared) distance matrix
         world_states_thread : (num_agents, 4) absolute [x,y,theta,v] for all agents
         ego        : int, this agent's node index
+        agent_in_tube_thread : (num_agents,) bool or None — gap-guard input
         """
         ego_state = world_states_thread[ego]
         other_agent_pos = world_states_thread[:, :2].astype(np.float32)  # (na, 2)
@@ -444,26 +392,12 @@ class CBFSafetyFilter:
         # adaptive ramp is enabled, in which case it is raised from self.alpha
         # toward self.alpha_max by this agent's local conflict-geometry signal.
         if self.adaptive_alpha or self.adaptive_horizon:
-            if self.adaptive_stall:
-                # Rung 3: severity is driven by the external progress-stall flag,
-                # NOT by geometry. 1 (stalled) -> ramp to short-h/high-alpha to
-                # break the deadlock; 0 (flowing) -> stay at the deployed long
-                # horizon / base alpha. A flowing bend never stalls, so it is not
-                # ramped (fixes the sequential regression); a merge deadlock does.
-                _stalled = (agent_stalled_thread is not None
-                            and bool(agent_stalled_thread[ego]))
-                _m = 1.0 if _stalled else 0.0
-                _min_ang = float("nan")
-                alpha_a = self.alpha + (self.alpha_max - self.alpha) * _m
-            else:
-                ego_vel = np.array([ego_state[3] * np.cos(ego_state[2]),
-                                    ego_state[3] * np.sin(ego_state[2])],
-                                   dtype=np.float32)                        # (2,)
-                alpha_a, _min_ang, _m = self._adaptive_alpha(
-                    ego_state[:2].astype(np.float32), ego_vel, float(ego_state[2]),
-                    other_agent_pos, nbr_vel, nbr_theta, ego,
-                    ego_goal=(None if agent_goals_thread is None
-                              else agent_goals_thread[ego]))
+            ego_vel = np.array([ego_state[3] * np.cos(ego_state[2]),
+                                ego_state[3] * np.sin(ego_state[2])],
+                               dtype=np.float32)                            # (2,)
+            alpha_a, _min_ang, _m = self._adaptive_alpha(
+                ego_state[:2].astype(np.float32), ego_vel, float(ego_state[2]),
+                other_agent_pos, nbr_vel, nbr_theta, ego)
             # junction gap guard: outside the corridor, cancel the ramp (force
             # m=0 -> deployed long horizon + base alpha). See __init__ gap_guard.
             if (self.gap_guard and agent_in_tube_thread is not None

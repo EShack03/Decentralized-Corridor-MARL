@@ -61,13 +61,13 @@ METRIC_KEYS = ("Success rates mean", "Conformance C% Mean",
 
 
 # ============================================================================
-# CBF safety-layer evaluation (added) — the `cbf-eval` subcommand.
+# CBF safety-layer evaluation (added) — tables used by the `reproduce` subcommand.
 #
-# This drives the SAME eval_mpe.py -> render() loop as `eval` above, so the
-# original metrics (collisions/success/conformance) are identical by
+# Every CBF run drives the SAME eval_mpe.py -> render() loop as `eval` above, so
+# the original metrics (collisions/success/conformance) are identical by
 # construction. It adds the read-only severity metrics in every run, and the
-# CBF safety filter only when a filtered stage is chosen. `--stage original`
-# runs the raw policy with no filter and reproduces the `eval` numbers.
+# CBF safety filter only when a filtered configuration is chosen. A no-filter
+# run of the original policy reproduces the `eval` numbers.
 # ============================================================================
 CBF_STAGES = {
     # stage       weights folder                                   policy slug      default filter
@@ -320,11 +320,12 @@ def cmd_eval(args):
     print("   Compare against the reference values in REPRODUCTION_GUIDE.md section 6.")
 
 
-# ---------- subcommand: cbf-eval (added) ----------
+# ---------- CBF eval command builder (added; used by `reproduce`) ----------
 def cbf_eval_cmd(py, stage, filt, scenario, n, eplen, episodes, seed, args):
     """One eval_mpe.py command for a single density + seed, with the CBF metrics
     collector attached (and the safety filter attached only when filt != none).
-    Drives the SAME render() loop as `eval`, with the SAME canonical protocol."""
+    Drives the SAME render() loop as `eval`, with the SAME canonical protocol.
+    `args` is the per-run shim built in cmd_reproduce."""
     cmd = [
         py, "-u", "onpolicy/scripts/eval_mpe.py",
         "--model_dir", stage["weights"],
@@ -352,14 +353,7 @@ def cbf_eval_cmd(py, stage, filt, scenario, n, eplen, episodes, seed, args):
                     "--cbf_alpha_max", str(getattr(args, "alpha_max", 2.0)),
                     "--cbf_ell_thresh", str(getattr(args, "ell_thresh", 0.32)),
                     "--cbf_ell_hi", str(getattr(args, "ell_hi", 0.80)),
-                    "--cbf_adaptive_sign", str(getattr(args, "adaptive_sign", 1.0)),
-                    "--cbf_heading_gate", str(getattr(args, "heading_gate", 0.6)),
-                    "--cbf_adaptive_gate", str(getattr(args, "adaptive_gate", "heading")),
-                    "--cbf_path_gate", str(getattr(args, "path_gate", 0.6))]
-            if getattr(args, "adaptive_stall", False):
-                cmd += ["--cbf_adaptive_stall",
-                        "--cbf_stall_window", str(getattr(args, "stall_window", 15)),
-                        "--cbf_stall_thresh", str(getattr(args, "stall_thresh", 0.15))]
+                    "--cbf_heading_gate", str(getattr(args, "heading_gate", 0.6))]
             _sr = getattr(args, "sense_range", None)
             if _sr is not None:
                 cmd += ["--cbf_sense_range", str(_sr)]
@@ -373,58 +367,13 @@ def cbf_eval_cmd(py, stage, filt, scenario, n, eplen, episodes, seed, args):
     return cmd
 
 
-def cmd_cbf_eval(args):
-    ensure_repo_root()
-    py = need_venv()
-    stage = CBF_STAGES[args.stage]
-
-    filt = args.filter or stage["filt"]
-    if args.stage == "original":
-        filt = "none"
-
-    if args.seeds:
-        seeds = [int(x) for x in args.seeds.split(",") if x.strip() != ""]
-    else:
-        seeds = [args.seed + i for i in range(max(1, args.num_seeds))]
-    Ns = ([int(x) for x in args.density_Ns.split(",")] if args.density_sweep
-          else [args.num_agents])
-    eplen = args.episode_length or CBF_EPLEN[args.scenario]
-
-    print("=" * 66)
-    print(f" CBF eval  stage={args.stage} ({stage['policy']}, tag {stage['tag']})")
-    print(f"           weights  = {stage['weights']}")
-    print(f"           filter   = {filt}")
-    print(f"           scenario = {args.scenario}  (episode_length={eplen})")
-    print(f"           N        = {Ns}")
-    print(f"           seeds    = {seeds}    episodes = {args.episodes}")
-    print(f"           runs     = {len(Ns) * len(seeds)}  (one result file each)")
-    print("=" * 66)
-
-    rc = 0
-    runs = [(n, s) for n in Ns for s in seeds]
-    for i, (n, s) in enumerate(runs, 1):
-        cmd = cbf_eval_cmd(py, stage, filt, args.scenario, n, eplen,
-                           args.episodes, s, args)
-        print(f"\n----- run {i}/{len(runs)}:  N={n}  seed={s}  "
-              f"({args.stage}/{filt}) -----")
-        print(">>>", " ".join(str(c) for c in cmd), flush=True)
-        r = subprocess.run([str(c) for c in cmd])
-        if r.returncode != 0:
-            print(f"    run N={n} seed={s} FAILED (exit {r.returncode}); continuing")
-            rc = r.returncode
-    if rc == 0:
-        print("\nOK: CBF eval complete. One result file per run in the repo root.")
-    else:
-        print(f"\nDONE with failures (last exit {rc}); see output above.")
-
-
 # ---------- subcommand: reproduce (added) ----------
 # One command that re-runs the whole design-logic chain EVAL-SIDE on the EXISTING
 # weights, so the order of thinking (Stage 2 -> horizon behaviour -> 3A failure ->
 # 3B fix) is re-established on the robust/consistent harness. No training: the
 # policy/barrier checkpoints are the design-history artifacts and are reused, not
-# regenerated. Every run goes through the same cbf_eval_cmd -> render() path as
-# `cbf-eval`, so the baseline rows are identical by construction. Default 1 seed
+# regenerated. Every run goes through the same cbf_eval_cmd -> render() path, so
+# the baseline rows are identical by construction. Default 1 seed
 # (fast logical check); pass --num_seeds 3 for the final error-bar data.
 #
 # Phases (run independently with --phase, or all at once):
@@ -461,18 +410,24 @@ def _repro_matrix(phase, horizons=None, filters=None, alphas=None, ns=None):
       fallback   3B x cv, cede-control fallback x N  (h=3)     no-safe-action ablation
       alpha      3B x cv, alpha in {0.5,0.75}  x N=10 (h=3)    class-K gain sweep
 
+    Opt-in phases (never part of `all`; run with --scenario of choice):
+      transfer   3B x cv at the deployed h on another scenario (generalisation)
+      mergefix   3B x cv, horizon x alpha grid                (regime-split evidence)
+      adaptive   3B x cv, Rung-1 adaptive alpha, fixed h      (tag AD_h3)
+      adaptive_h 3B x cv, Rung-2 adaptive alpha + horizon     (tag ADH_h3; add
+                 --gap_guard for the FINAL algorithm, tag ADH_h3_gap)
+      headline   3B x cv, fixed refs h3a1 / h1a2 / h1a1.5 + Rung-2 adaptive
+
     `horizons` overrides the swept horizons for a standalone horizon/horizon3b run
     (applied to BOTH filters); in `all` each filter uses its own default set."""
     runs = []
     NS = ns or REPRO_NS
 
     def add(tag, pol, filt, n, h=3, fb="least_unsafe", al=1.0, adaptive=False,
-            adaptive_horizon=False, adaptive_gate="heading", adaptive_stall=False):
+            adaptive_horizon=False):
         runs.append(dict(tag=tag, policy_key=pol, filt=filt, n=n, horizon=h,
                          fallback=fb, alpha=al, adaptive=adaptive,
-                         adaptive_horizon=adaptive_horizon,
-                         adaptive_gate=adaptive_gate,
-                         adaptive_stall=adaptive_stall))
+                         adaptive_horizon=adaptive_horizon))
 
     def inc(*names):
         return phase == "all" or phase in names
@@ -573,41 +528,6 @@ def _repro_matrix(phase, horizons=None, filters=None, alphas=None, ns=None):
             add("HLcomp_h1a15", "s3B", "cv", n, h=1, al=1.5)                  # single compromise
             add("HLadapt",      "s3B", "cv", n, h=3, al=1.0,
                 adaptive=True, adaptive_horizon=True)                          # Rung-2 adaptive
-    if phase == "headline_gate":  # opt-in only; NOT part of `all`
-        # A/B for the in-line gate on the Rung-2 adaptive filter: the legacy
-        # HEADING gate vs the new PATH-tangent gate, same policy/scenario/N so only
-        # the gate differs. Run on --scenario sequential (should IMPROVE: the 90-deg
-        # bend false-positive that ramps followers to short horizon is removed) and
-        # on --scenario merge (should NOT regress: cross-traffic still ramps). If
-        # merge regresses, narrow the cone with --path_gate.
-        for n in NS:
-            add("HLadapt",      "s3B", "cv", n, h=3, al=1.0,
-                adaptive=True, adaptive_horizon=True)                          # legacy heading gate
-            add("HLadapt_path", "s3B", "cv", n, h=3, al=1.0,
-                adaptive=True, adaptive_horizon=True, adaptive_gate="path")    # new path-tangent gate
-    if phase == "rung3":  # opt-in only; NOT part of `all`
-        # Rung 3: the REACTIVE stall-triggered adaptive filter vs its references.
-        # Default long horizon everywhere; ramp short ONLY when along-corridor
-        # progress stalls (a genuine deadlock), so a flowing bend is never ramped.
-        # Run on --scenario sequential (should MATCH the long optimum h3a1 - the
-        # geometry regression is gone) and --scenario merge (should MATCH the short
-        # optimum h1a2 - the deadlock still triggers the ramp). Four configs: the
-        # two fixed regime optima, the Rung-2 geometry adaptive (HLadapt), and the
-        # Rung-3 stall adaptive (HLadapt_stall).
-        for n in NS:
-            add("HLfix_h3a1",    "s3B", "cv", n, h=3, al=1.0)                  # long ref (seq-optimal)
-            add("HLfix_h1a2",    "s3B", "cv", n, h=1, al=2.0)                  # short ref (merge-optimal)
-            add("HLadapt",       "s3B", "cv", n, h=3, al=1.0,
-                adaptive=True, adaptive_horizon=True)                          # Rung-2 (geometry)
-            add("HLadapt_stall", "s3B", "cv", n, h=3, al=1.0,
-                adaptive=True, adaptive_horizon=True, adaptive_stall=True)     # Rung-3 (stall trigger)
-    if phase == "stall":  # opt-in only; NOT part of `all`
-        # ONLY the new Rung-3 config, for when the fixed/geometry references already
-        # exist and should not be recomputed. Compare its result files against the
-        # existing HLfix_h3a1 / HLfix_h1a2 / HLadapt files for the same scenario/N.
-        for n in NS:
-            add("HLadapt_stall", "s3B", "cv", n, h=3, al=1.0,
-                adaptive=True, adaptive_horizon=True, adaptive_stall=True)
     return runs
 
 
@@ -641,10 +561,6 @@ def cmd_reproduce(args):
     for i, (spec, s) in enumerate(full, 1):
         pol = REPRO_POLICIES[spec["policy_key"]]
         _tag = spec["tag"]
-        if spec.get("adaptive_stall", False):
-            # encode the stall threshold in the tag so a --stall_thresh sweep
-            # writes distinct result files instead of overwriting each other.
-            _tag = f"{_tag}_t{getattr(args, 'stall_thresh', 0.15)}"
         if getattr(args, "gap_guard", False):
             # distinguish the gap-guarded run from the un-guarded baseline.
             _tag = f"{_tag}_gap"
@@ -659,15 +575,9 @@ def cmd_reproduce(args):
             ell_thresh=getattr(args, "ell_thresh", 0.32),
             ell_hi=getattr(args, "ell_hi", 0.80),
             sense_range=getattr(args, "sense_range", None),
-            adaptive_sign=getattr(args, "adaptive_sign", 1.0),
             heading_gate=getattr(args, "heading_gate", 0.6),
             adaptive_horizon=spec.get("adaptive_horizon", False),
             h_min=getattr(args, "h_min", 1),
-            adaptive_gate=spec.get("adaptive_gate", "heading"),
-            path_gate=getattr(args, "path_gate", 0.6),
-            adaptive_stall=spec.get("adaptive_stall", False),
-            stall_window=getattr(args, "stall_window", 15),
-            stall_thresh=getattr(args, "stall_thresh", 0.15),
             gap_guard=getattr(args, "gap_guard", False))
         cmd = [str(c) for c in cbf_eval_cmd(py, st, spec["filt"], scenario,
                spec["n"], eplen, args.episodes, s, shim)]
@@ -765,44 +675,6 @@ def main():
                    help="random seed for evaluation")
     e.set_defaults(func=cmd_eval)
 
-    # ---- cbf-eval (added): the CBF safety-layer evaluation ----
-    c = sub.add_parser("cbf-eval",
-                       help="evaluate a stage with the CBF safety layer "
-                            "(original / s2 / s3A / s3B); same loop as `eval`")
-    c.add_argument("--stage", choices=list(CBF_STAGES.keys()), default="s3B",
-                   help="which system: original (baseline), s2 (shield on the "
-                        "original policy), s3A (shielded-in-training), s3B "
-                        "(reward-shaped, the final system)")
-    c.add_argument("--filter", choices=["none", "static", "cv"], default=None,
-                   help="eval-time shield; default follows the stage "
-                        "(cv for s2/s3A/s3B, forced none for original)")
-    c.add_argument("--num_agents", type=int, default=10, help="agent count / density")
-    c.add_argument("--episodes", type=int, default=50, help="episodes per run")
-    c.add_argument("--scenario", choices=list(CBF_SCENARIOS.keys()),
-                   default="sequential", help="corridor scenario")
-    c.add_argument("--seed", type=int, default=1, help="first seed")
-    c.add_argument("--num_seeds", type=int, default=1,
-                   help="how many seeds, counting up from --seed (default 1)")
-    c.add_argument("--seeds", type=str, default=None,
-                   help="explicit comma list, e.g. 1,2,3 (overrides --num_seeds)")
-    c.add_argument("--density_sweep", action="store_true",
-                   help="run every N in --density_Ns (one result file each)")
-    c.add_argument("--density_Ns", type=str, default="5,8,10")
-    c.add_argument("--alpha", type=float, default=1.0, help="CBF class-K gain")
-    c.add_argument("--horizon", type=int, default=3, help="filter lookahead steps")
-    c.add_argument("--fallback", choices=["least_unsafe", "unfiltered"],
-                   default="least_unsafe", help="action when no primitive is safe")
-    c.add_argument("--barrier", type=str, default=CBF_BARRIER_DEFAULT,
-                   help="trained barrier checkpoint")
-    c.add_argument("--show", action="store_true",
-                   help="watch the run live in a window. Off by default: the eval "
-                        "runs metrics-only so it is fast and can't hit the render OOM. "
-                        "The result numbers are identical with or without --show.")
-    c.add_argument("--world_size", type=float, default=5.0)
-    c.add_argument("--episode_length", type=int, default=None,
-                   help="override; default per-scenario (single=120, else=200)")
-    c.set_defaults(func=cmd_cbf_eval)
-
     # ---- reproduce (added): re-run the whole design chain eval-side ----
     r = sub.add_parser("reproduce",
         help="re-run the design-logic chain (Stage2 / horizon sweep / 3A / 3B) "
@@ -811,7 +683,7 @@ def main():
                    choices=["all", "baseline", "stage2", "horizon", "horizon3b",
                             "stage3", "stage3a", "stage3b", "fallback", "alpha",
                             "transfer", "mergefix", "adaptive", "adaptive_h",
-                            "headline", "headline_gate", "rung3", "stall"],
+                            "headline"],
                    default="all", help="which part of the chain to run")
     r.add_argument("--scenario", choices=list(CBF_SCENARIOS.keys()),
                    default="sequential", help="canonical chain scenario")
@@ -855,9 +727,6 @@ def main():
     r.add_argument("--sense_range", type=float, default=None,
                    help="km; only neighbours within this range feed the adaptive "
                         "signal (default: all agents).")
-    r.add_argument("--adaptive_sign", type=float, default=1.0, choices=[1.0, -1.0],
-                   help="+1 corrected (converging=small angle); -1 flips it if the "
-                        "in-env sign check shows inversion.")
     r.add_argument("--heading_gate", type=float, default=0.6,
                    help="rad; neighbours whose heading is within this of the ego's "
                         "are treated as in-line following and excluded from the "
@@ -867,17 +736,6 @@ def main():
     r.add_argument("--h_min", type=int, default=1,
                    help="shortest horizon the Rung-2 (phase 'adaptive_h') horizon "
                         "ramp can reach. Default 1.")
-    r.add_argument("--path_gate", type=float, default=0.6,
-                   help="half-angle (rad) of the in-line cone for the path-tangent "
-                        "gate (the HLadapt_path config / phase 'headline_gate'). "
-                        "Default 0.6 (~34 deg); lower it if merge starts to regress.")
-    r.add_argument("--stall_window", type=int, default=15,
-                   help="Rung 3 (phase 'rung3'): steps over which along-corridor "
-                        "progress is measured for the stall trigger. Default 15.")
-    r.add_argument("--stall_thresh", type=float, default=0.15,
-                   help="Rung 3 (phase 'rung3'): minimum net along-corridor progress "
-                        "(km) over the window; below this an agent is flagged stalled "
-                        "and ramped to the short horizon. Default 0.15.")
     r.add_argument("--gap_guard", action="store_true",
                    help="Variant 1: enable the junction gap guard on an adaptive "
                         "filter (e.g. --phase adaptive_h) -- suppress the ramp when "
