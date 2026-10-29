@@ -110,10 +110,6 @@ def parse_args(args, parser):
     parser.add_argument("--cbf_sense_range", type=float, default=None,
                         help="km; only neighbours within this range feed the adaptive "
                              "signal. Default None = every other agent counts.")
-    parser.add_argument("--cbf_adaptive_sign", type=float, default=1.0,
-                        choices=[1.0, -1.0],
-                        help="+1 (default, corrected: converging pair -> small angle); "
-                             "-1 flips it if the sign-convention check shows inversion.")
     parser.add_argument("--cbf_heading_gate", type=float, default=0.6,
                         help="rad; a neighbour whose heading is within this of the "
                              "ego's is treated as in-line following and excluded from "
@@ -128,32 +124,6 @@ def parse_args(args, parser):
     parser.add_argument("--cbf_h_min", type=int, default=1,
                         help="shortest horizon the adaptive ramp can reach (used only "
                              "with --cbf_adaptive_horizon). Default 1.")
-    parser.add_argument("--cbf_adaptive_gate", type=str, default="heading",
-                        choices=["heading", "path"],
-                        help="which in-line/cross-traffic gate the adaptive ramp uses: "
-                             "'heading' (legacy, heading-difference via --cbf_heading_gate) "
-                             "or 'path' (bearing of a neighbour relative to the ego's own "
-                             "direction of travel; a leader ahead along a curving corridor "
-                             "stays excluded through a bend, fixing the sequential "
-                             "regression). Default 'heading' (unchanged behaviour).")
-    parser.add_argument("--cbf_path_gate", type=float, default=0.6,
-                        help="half-angle (rad) of the in-line cone for the path gate "
-                             "(--cbf_adaptive_gate path). ~34 deg default; lower it if "
-                             "merge starts to regress (cone too wide).")
-    parser.add_argument("--cbf_adaptive_stall", action="store_true",
-                        help="Rung 3: drive the adaptive ramp from a per-agent PROGRESS-"
-                             "STALL signal instead of the proactive geometry signal. Long "
-                             "horizon / base alpha by default; ramp to short horizon / "
-                             "alpha_max only when an agent's along-corridor progress stalls "
-                             "(a genuine deadlock). Use with --cbf_adaptive "
-                             "--cbf_adaptive_horizon. The stall flag is computed in the "
-                             "runner from the corridor-frame progress coordinate.")
-    parser.add_argument("--cbf_stall_window", type=int, default=15,
-                        help="steps over which along-corridor progress is measured for the "
-                             "Rung-3 stall signal.")
-    parser.add_argument("--cbf_stall_thresh", type=float, default=0.15,
-                        help="minimum net along-corridor progress (km) over the window; below "
-                             "this an agent is flagged stalled (Rung 3).")
     parser.add_argument("--cbf_gap_guard", action="store_true",
                         help="Variant 1 junction gap guard: suppress the adaptive ramp "
                              "(force base alpha / deployed horizon) for any agent NOT "
@@ -289,15 +259,9 @@ def _attach_cbf_eval(runner, all_args, device):
             alpha_max=all_args.cbf_alpha_max,
             ell_thresh=all_args.cbf_ell_thresh, ell_hi=all_args.cbf_ell_hi,
             sense_range=all_args.cbf_sense_range,
-            adaptive_sign=all_args.cbf_adaptive_sign,
             heading_gate=all_args.cbf_heading_gate,
             adaptive_horizon=all_args.cbf_adaptive_horizon,
             h_min=all_args.cbf_h_min,
-            adaptive_gate=all_args.cbf_adaptive_gate,
-            path_gate=all_args.cbf_path_gate,
-            adaptive_stall=all_args.cbf_adaptive_stall,
-            stall_window=all_args.cbf_stall_window,
-            stall_thresh=all_args.cbf_stall_thresh,
             gap_guard=all_args.cbf_gap_guard)
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
@@ -306,11 +270,8 @@ def _attach_cbf_eval(runner, all_args, device):
             print(f"[cbf] safety filter attached (neighbour={all_args.cbf_neighbour_model}, "
                   f"ADAPTIVE alpha {all_args.cbf_alpha}->{all_args.cbf_alpha_max} "
                   f"[ell_thresh={all_args.cbf_ell_thresh}, ell_hi={all_args.cbf_ell_hi}, "
-                  f"sense={all_args.cbf_sense_range}, sign={all_args.cbf_adaptive_sign:+.0f}, "
-                  f"gate={all_args.cbf_adaptive_gate}, heading_gate={all_args.cbf_heading_gate}, "
-                  f"path_gate={all_args.cbf_path_gate}, "
-                  f"stall={all_args.cbf_adaptive_stall}, gap_guard={all_args.cbf_gap_guard}"
-                  f"{'' if not all_args.cbf_adaptive_stall else f'(W={all_args.cbf_stall_window},thr={all_args.cbf_stall_thresh})'}], "
+                  f"sense={all_args.cbf_sense_range}, heading_gate={all_args.cbf_heading_gate}, "
+                  f"gap_guard={all_args.cbf_gap_guard}], "
                   f"{_hz_desc}, "
                   f"fallback={all_args.cbf_fallback}); barrier={all_args.cbf_barrier}; "
                   f"barrier_device={bdev}")
@@ -409,7 +370,7 @@ def main(args):
         all_args.save_gifs = False
     runner.render(get_metrics=_cbf_metrics_only)
 
-    # --- adaptive-alpha diagnostics (sign-convention + behaviour check) --------
+    # --- adaptive-ramp diagnostics (how often / how far the ramp engaged) -----
     _filt = getattr(runner, "cbf_eval_filter", None)
     if _filt is not None and (getattr(_filt, "adaptive_alpha", False)
                               or getattr(_filt, "adaptive_horizon", False)):
@@ -429,10 +390,8 @@ def main(args):
               f"max_alpha={st['max_alpha']:.3f} "
               f"mean_min_angle={mean_min_ang:.3f}rad min_min_angle={min_ang:.3f}rad "
               f"(ell_thresh={_filt.ell_thresh}, ell_hi={_filt.ell_hi}, "
-              f"heading_gate={_filt.heading_gate}){_hz_part}")
-        print("[cbf-adaptive] SIGN CHECK: converging scenario (merge) should show a "
-              "HIGH ramped%% and SMALL min_angle; free-flow (sequential) LOW ramped%% "
-              "and larger angles. If reversed, re-run with --cbf_adaptive_sign -1.")
+              f"heading_gate={_filt.heading_gate}){_hz_part}"
+              + (f" gap_guard_overrides={st['guard'] / n:.1%}" if _filt.gap_guard else ""))
 
     # post process
     envs.close()

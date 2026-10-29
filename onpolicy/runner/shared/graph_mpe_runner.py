@@ -7,7 +7,6 @@ from typing import Tuple
 import torch
 from onpolicy.runner.shared.base_runner import Runner
 from onpolicy.runner.shared.eval_metrics_logger import create_logger
-from collections import deque
 import wandb
 import imageio
 import csv
@@ -85,10 +84,11 @@ class GMPERunner(Runner):
 		# The policy is taught to keep clear of the unsafe set by subtracting a
 		# penalty  lambda * relu(margin - h_ego)  from the environment reward of
 		# every agent-step before it enters the buffer, where h_ego is the value
-		# of the (co-learning) barrier at that agent's current ego-graph. No
-		# safety filter runs in the loop here on purpose: Stage 3A showed that a
-		# filter active during training lets the policy offload safety onto it,
-		# so 3B removes the crutch and makes the policy itself responsible.
+		# of the barrier (Stage-1 weights) at that agent's current ego-graph.
+		# Stage 3A showed that a filter alone during training lets the policy
+		# offload safety onto it; the shaping penalty makes the policy itself
+		# responsible. Whether the filter also runs in the loop is set by
+		# --cbf_filter_in_loop in train_mpe.py (see collect_with_mask).
 		self.cbf_reward_coef = getattr(self.all_args, "cbf_reward_coef", 0.0)
 		self.cbf_reward_margin = getattr(self.all_args, "cbf_reward_margin", 2.0)
 		self._cbf_shape_on = (self.cbf_reward_coef > 0.0 and
@@ -100,9 +100,9 @@ class GMPERunner(Runner):
 
 		# The ego-frame safety filter (EgoCBFFilter) is attached here by
 		# train_mpe.py AFTER the runner is built, so it can share this runner's
-		# trainer.cbf_barrier instance (the barrier the filter uses is then the
-		# one that keeps learning). None => no filter in the loop (baseline / 3A
-		# with no filter). See collect_with_mask for where it is applied.
+		# trainer.cbf_barrier instance (filter and shaping use one barrier).
+		# None => no filter in the loop (baseline, or --cbf_filter_in_loop False).
+		# See collect_with_mask for where it is applied.
 		self.cbf_filter = None
 		self._cbf_filter_log_ctr = 0
 
@@ -110,8 +110,8 @@ class GMPERunner(Runner):
 		"""Subtract the barrier proximity penalty from per-agent rewards.
 		rewards: (n_rollout_threads, num_agents) as returned by env.step
 		(i.e. BEFORE the [:, :, np.newaxis] expansion). Returns same shape.
-		Uses the trainer's live barrier so the penalty tracks the barrier as it
-		co-adapts. Safe (h large positive) -> zero penalty; as h falls below the
+		Uses the trainer's barrier (the same instance as the in-loop filter).
+		Safe (h large positive) -> zero penalty; as h falls below the
 		margin the penalty grows, hitting hardest as the agent nears h=0."""
 		if not self._cbf_shape_on:
 			return rewards
@@ -275,8 +275,6 @@ class GMPERunner(Runner):
 				print(f"Average episode rewards is {avg_ep_rew:.3f} \t"
 					f"Total timesteps: {total_num_steps} \t "
 					f"Percentage complete {total_num_steps / self.num_env_steps * 100:.3f}")
-				if 'cbf_loss' in train_infos:
-					print(f"[3B] barrier CBF loss: {train_infos['cbf_loss']:.5f}")
 				for agent_id in range(self.num_agents):
 					str1 = f'agent{agent_id}/distance_mean'
 					str2 = f'agent{agent_id}/distance_variance'
@@ -389,8 +387,8 @@ class GMPERunner(Runner):
 
 		# ---- Stage-3B: ego-frame CBF safety filter in the training rollout ----
 		# Same shielded-RL setup as 3A (filter masks unsafe primitives during
-		# training); 3B differs in that the barrier is co-learning and the policy
-		# also gets a reward-shaping safety signal. Applied to ACTIVE agents only
+		# training); 3B differs in that the policy also gets a reward-shaping
+		# safety signal. Applied to ACTIVE agents only
 		# (finished agents keep their stop-only mask). The least-unsafe fallback
 		# guarantees every active row keeps >=1 primitive, so no all-zero masks.
 		if self.cbf_filter is not None:
@@ -711,14 +709,6 @@ class GMPERunner(Runner):
 			# Track exit times for throughput calculation
 			agent_exit_times = [-1.0] * self.num_agents  # -1 = not exited yet
 
-			# Rung-3 stall signal: per-agent along-corridor progress history (reset per episode)
-			_stall_on = bool(getattr(getattr(self, "cbf_eval_filter", None), "adaptive_stall", False))
-			if _stall_on:
-				_stall_W = int(getattr(self.all_args, "cbf_stall_window", 15))
-				_stall_T = float(getattr(self.all_args, "cbf_stall_thresh", 0.15))
-				_stall_hist = [deque(maxlen=_stall_W) for _ in range(self.num_agents)]
-				_stall_last_tube = [-1 for _ in range(self.num_agents)]
-
 			# Trajectory logging (if enabled)
 			if self.all_args.save_trajectories:
 				episode_positions = []  # List of (num_agents, 2) arrays per timestep
@@ -867,36 +857,8 @@ class GMPERunner(Runner):
 							[[a.state.p_pos[0], a.state.p_pos[1],
 							  float(a.state.theta), float(a.state.speed)] for a in _wa],
 							dtype=np.float32)[None]                      # (1, na, 4)
-						_wgoals = None
 						_scen = getattr(self, "cbf_eval_scen", None)
 						_world_cbf = envs.envs[0].world
-						if _scen is not None and hasattr(_scen, "current_tube") and hasattr(_world_cbf, "tube_params"):
-							try:
-								_tp, _ct = _world_cbf.tube_params, _scen.current_tube
-								_wgoals = np.array(
-									[[a.state.p_pos[0] + float(_tp[int(_ct[a.id])]['e'][0]),
-									  a.state.p_pos[1] + float(_tp[int(_ct[a.id])]['e'][1])]
-									 for a in _wa], dtype=np.float32)[None]   # (1, na, 2) path tangent
-							except Exception:
-								_wgoals = None
-						_wstall = None
-						if _stall_on and _scen is not None and hasattr(_scen, "current_tube") and hasattr(_scen, "_tube_coords"):
-							try:
-								_flags = np.zeros(len(_wa), dtype=bool)
-								for _ag in _wa:
-									_i = int(_ag.id)
-									_tb = int(_scen.current_tube[_i])
-									if _tb != _stall_last_tube[_i]:
-										_stall_hist[_i].clear()
-										_stall_last_tube[_i] = _tb
-									_s = float(_scen._tube_coords(_world_cbf, _ag.state.p_pos, _tb)[0])
-									_stall_hist[_i].append(_s)
-									_h = _stall_hist[_i]
-									if len(_h) == _h.maxlen:
-										_flags[_i] = (_h[-1] - _h[0]) < _stall_T
-								_wstall = _flags[None]   # (1, na) bool
-							except Exception:
-								_wstall = None
 						# per-agent in-corridor flag for the junction gap guard (uses the
 						# scenario's own is_in_tube -- the SAME test as the in/out metric).
 						_win_tube = None
@@ -910,8 +872,6 @@ class GMPERunner(Runner):
 						_mask, _no_safe = self.cbf_eval_filter.masks_for_threads(
 							np.concatenate(node_obs)[None],
 							np.concatenate(adj)[None], _wstate,
-							agent_goals=_wgoals,
-							agent_stalled=_wstall,
 							agent_in_tube=_win_tube)
 						_combined = available_actions * _mask[0]          # (na, n_act)
 						_empty = _combined.sum(axis=-1) == 0

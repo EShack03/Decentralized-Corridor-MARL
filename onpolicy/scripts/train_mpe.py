@@ -102,41 +102,34 @@ def parse_args(args, parser):
     help="Type of vehicle dynamics to use.")
     '''
 
-    # ---- Stage-3B: joint barrier + policy training (all off by default, so
+    # ---- Stages 3A/3B: CBF barrier in the training loop (all off by default, so
     # omitting these leaves training byte-for-byte identical to the baseline) ----
     parser.add_argument("--cbf_train_barrier", action="store_true", default=False,
-                        help="Co-train the CBF barrier alongside the policy (Part A).")
+                        help="Load the CBF barrier into the trainer so the in-loop "
+                        "filter and the reward shaping can use it (name kept for "
+                        "compatibility with the 3A/3B training commands; the barrier "
+                        "itself is not optimised).")
     parser.add_argument("--cbf_barrier", type=str, default=None,
-                        help="Path to a Stage-1 barrier .pt to initialise from "
-                        "(the barrier then keeps learning). If omitted, the "
-                        "co-trained barrier starts from random init.")
+                        help="Path to the Stage-1 barrier .pt to load. If omitted, "
+                        "the barrier is randomly initialised.")
     parser.add_argument("--cbf_reward_coef", type=float, default=0.0,
                         help="lambda for barrier reward shaping (Part B). 0 = off.")
     parser.add_argument("--cbf_reward_margin", type=float, default=2.0,
                         help="Shaping margin: penalise while h_ego < this value.")
-    parser.add_argument("--cbf_loss_coef", type=float, default=1.0,
-                        help="Weight on the barrier CBF loss in the barrier update.")
-    parser.add_argument("--cbf_lr", type=float, default=1e-3,
-                        help="Learning rate for the barrier optimiser.")
     parser.add_argument("--cbf_alpha", type=float, default=1.0,
                         help="alpha in the barrier condition h_dot + alpha*h >= 0.")
-    parser.add_argument("--cbf_eps", type=float, default=0.02,
-                        help="Margin epsilon inside the CBF classification losses.")
-    parser.add_argument("--cbf_margin", type=float, default=2.0,
-                        help="Distance margin (x separation) for safe/unsafe labels.")
     parser.add_argument("--cbf_hidden", type=int, default=64,
-                        help="Hidden size of the co-trained barrier GNN.")
+                        help="Hidden size of the barrier GNN.")
     parser.add_argument("--cbf_layers", type=int, default=2,
-                        help="Number of layers in the co-trained barrier GNN.")
+                        help="Number of layers in the barrier GNN.")
     parser.add_argument("--cbf_filter_in_loop",
                         type=lambda x: bool(strtobool(x)), default=True,
                         help="Run the ego-frame CBF filter in the training "
                         "rollout (shielded RL, as in 3A). Set False to train "
-                        "barrier+policy with NO filter mask (pure reward-shaping "
+                        "the policy with NO filter mask (pure reward-shaping "
                         "ablation). Only has effect when --cbf_train_barrier.")
     parser.add_argument("--cbf_filter_eps", type=float, default=0.0,
-                        help="Slack in the filter's barrier-condition test "
-                        "(separate from --cbf_eps, which is the loss margin).")
+                        help="Slack eps in the filter's barrier-condition test.")
     parser.add_argument("--cbf_neighbour_model", type=str, default="static",
                         choices=["static", "constant_velocity"],
                         help="Neighbour motion the filter assumes over its "
@@ -282,8 +275,7 @@ def main(args):
 
     # ---- Stage-3B: attach the ego-frame CBF safety filter to the runner ----
     # Built AFTER the runner so it shares the trainer's cbf_barrier instance:
-    # the filter then evaluates the SAME barrier that co-learns during 3B, so
-    # filter / reward-shaping / barrier-loss all use one consistent barrier.
+    # the filter and the reward shaping then use one and the same barrier.
     if (getattr(all_args, "cbf_train_barrier", False) and
             getattr(all_args, "cbf_filter_in_loop", True)):
         from onpolicy.algorithms.utils.cbf_filter import (

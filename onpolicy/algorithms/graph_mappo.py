@@ -56,10 +56,10 @@ class GR_MAPPO():
         self._use_valuenorm = args.use_valuenorm
         self._use_value_active_masks = args.use_value_active_masks
         self._use_policy_active_masks = args.use_policy_active_masks
-        self.scaler = amp.GradScaler()
+        self.scaler = amp.GradScaler() 
 
         assert (self._use_popart and self._use_valuenorm) == False, ("self._use_popart and self._use_valuenorm can not be set True simultaneously")
-
+        
         if self._use_popart:
             self.value_normalizer = self.policy.critic.v_out
         elif self._use_valuenorm:
@@ -67,24 +67,21 @@ class GR_MAPPO():
         else:
             self.value_normalizer = None
 
-        # ---- Stage-3B: trainable barrier (co-adaptation). Only built when
+        # ---- Stages 3A/3B: the CBF barrier used during training. Only built when
         # --cbf_train_barrier is set; otherwise everything below is inert and
         # training is unchanged. The SAME CBFGNN instance is shared with the
-        # rollout filter (wired in train_mpe.py) so the filter always uses the
-        # currently-learning barrier. ----
+        # rollout filter (wired in train_mpe.py) and the reward shaping
+        # (graph_mpe_runner._cbf_shape_rewards), so all three read one barrier.
+        # The barrier is NOT optimised here: it keeps the Stage-1 weights it is
+        # initialised from. (A barrier co-training loss was prototyped; it is not
+        # reachable in this code because the replay buffer the runner builds does
+        # not supply the next-step graphs it needs, and its logged loss was 0 for
+        # the whole 3B run. See Code_Audit_and_Streamline_Plan section 3.) ----
         self.cbf_train_barrier = getattr(args, "cbf_train_barrier", False)
         self.cbf_barrier = None
-        self.barrier_optimizer = None
         if self.cbf_train_barrier:
-            from onpolicy.algorithms.utils.cbf_gnn import CBFGNN, safe_unsafe_masks
-            self._safe_unsafe_masks = safe_unsafe_masks
-            self.cbf_num_agents = args.num_agents
-            self.cbf_sep = 500 * 0.0003048            # COLLISION_DISTANCE (km)
+            from onpolicy.algorithms.utils.cbf_gnn import CBFGNN
             self.cbf_max_edge = 2 * 1.60934           # COORDINATION_RANGE (km)
-            self.cbf_alpha = getattr(args, "cbf_alpha", 1.0)
-            self.cbf_eps = getattr(args, "cbf_eps", 0.02)
-            self.cbf_margin = getattr(args, "cbf_margin", 2.0)
-            self.cbf_loss_coef = getattr(args, "cbf_loss_coef", 1.0)
             self.cbf_barrier = CBFGNN(
                 node_obs_dim=7, edge_dim=1,
                 hidden_size=getattr(args, "cbf_hidden", 64),
@@ -94,10 +91,7 @@ class GR_MAPPO():
             if init_path:
                 self.cbf_barrier.load_state_dict(
                     torch.load(init_path, map_location=self.device))
-                print(f"[3B] barrier initialised from {init_path} (will keep learning)")
-            self.barrier_optimizer = torch.optim.Adam(
-                self.cbf_barrier.parameters(),
-                lr=getattr(args, "cbf_lr", 1e-3))
+                print(f"[3B] barrier initialised from {init_path}")
 
     def cal_value_loss(self, 
                     values:Tensor, 
@@ -149,50 +143,6 @@ class GR_MAPPO():
             value_loss = value_loss.mean()
 
         return value_loss
-
-    def compute_cbf_loss(self, node_obs_batch, adj_batch, agent_id_batch,
-                         next_node_obs_batch, next_adj_batch, next_masks_batch):
-        """
-        Stage-3B barrier CBF loss on a minibatch of ego-graphs. Trains the barrier
-        to keep h>=0 in safe states, h<0 in unsafe states, and satisfy the barrier
-        condition h_dot + alpha*h >= 0 along real consecutive transitions (h_dot
-        masked out where the transition crosses an episode reset).
-        Returns a scalar loss tensor (0 if a needed batch is empty).
-        """
-        no = check(node_obs_batch).to(**self.tpdv)
-        ad = check(adj_batch).to(**self.tpdv)
-        nno = check(next_node_obs_batch).to(**self.tpdv)
-        nad = check(next_adj_batch).to(**self.tpdv)
-        ego = check(agent_id_batch).to(self.device).long().reshape(-1)      # (B,)
-        valid = check(next_masks_batch).to(**self.tpdv).reshape(-1)         # (B,) 1=valid
-        B = no.shape[0]
-        na = self.cbf_num_agents
-        ar = torch.arange(B, device=self.device)
-
-        h = self.cbf_barrier(no, ad)[ar, ego]                              # (B,)
-        h_next = self.cbf_barrier(nno, nad)[ar, ego]                       # (B,)
-
-        # nearest OTHER-agent distance from the ego's row of adj (for safe/unsafe labels)
-        row = ad[ar, ego][:, :na].clone()                                  # (B, na)
-        row[ar, ego] = float("inf")                                        # ignore self
-        row[row == 0.0] = float("inf")                                     # ignore disconnected
-        nn_dist = row.min(dim=1).values                                    # (B,)
-
-        safe_mask, unsafe_mask = self._safe_unsafe_masks(
-            nn_dist, self.cbf_sep, margin=self.cbf_margin)
-        eps = self.cbf_eps
-
-        zero = h.sum() * 0.0
-        loss_safe = torch.relu(-h[safe_mask] + eps).mean() if safe_mask.any() else zero
-        loss_unsafe = torch.relu(h[unsafe_mask] + eps).mean() if unsafe_mask.any() else zero
-
-        # barrier condition on valid (non-reset) transitions only
-        h_dot = h_next - h
-        cond = torch.relu(-(h_dot) - self.cbf_alpha * h + eps)             # (B,)
-        denom = valid.sum()
-        loss_hdot = (cond * valid).sum() / denom if denom > 0 else zero
-
-        return 1.0 * loss_safe + 1.0 * loss_unsafe + 0.1 * loss_hdot
     @torch.cuda.amp.autocast()
     def ppo_update(self, 
                 sample:Tuple, 
@@ -224,13 +174,7 @@ class GR_MAPPO():
         share_agent_id_batch, rnn_states_batch, rnn_states_critic_batch, \
         actions_batch, value_preds_batch, return_batch, masks_batch, \
         active_masks_batch,old_action_log_probs_batch, adv_targ, \
-        available_actions_batch = sample[:16]
-        # Stage-3B: the recurrent generator appends next-step graphs (19-tuple);
-        # other generators yield 16. Grab the extras if present.
-        if len(sample) >= 19:
-            next_node_obs_batch, next_adj_batch, next_masks_batch = sample[16:19]
-        else:
-            next_node_obs_batch = next_adj_batch = next_masks_batch = None
+        available_actions_batch = sample
 
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
@@ -348,31 +292,6 @@ class GR_MAPPO():
             # self.policy.critic_optimizer.step()
             # self.policy.critic_optimizer.zero_grad()
 
-        # ---- Stage-3B: barrier CBF-loss update (co-adaptation) ----
-        # Separate zero_grad/backward/step for the barrier, mirroring actor/critic
-        # and sharing the single AMP scaler. Only runs in 3B mode with next-step
-        # graphs present. Trains ONLY the barrier's params (its own optimiser).
-        cbf_loss_val = 0.0
-        if self.cbf_train_barrier and (next_node_obs_batch is not None):
-            cbf_loss = self.compute_cbf_loss(
-                node_obs_batch, adj_batch, agent_id_batch,
-                next_node_obs_batch, next_adj_batch, next_masks_batch)
-            # Guard: never apply a non-finite CBF loss to the barrier — a single
-            # NaN/Inf gradient would silently corrupt it for the whole run.
-            if torch.isfinite(cbf_loss):
-                self.barrier_optimizer.zero_grad()
-                self.scaler.scale(cbf_loss * self.cbf_loss_coef).backward()
-                self.scaler.unscale_(self.barrier_optimizer)
-                if self._use_max_grad_norm:
-                    nn.utils.clip_grad_norm_(self.cbf_barrier.parameters(),
-                                             self.max_grad_norm)
-                if (self.update_counter + 1) % accumulation_steps == 0:
-                    self.scaler.step(self.barrier_optimizer)
-                cbf_loss_val = float(cbf_loss.detach())
-            else:
-                print("[3B][warn] non-finite CBF loss this minibatch — "
-                      "barrier update skipped")
-
         # Increment the update counter
         self.update_counter += 1
         self.scaler.update()
@@ -380,9 +299,9 @@ class GR_MAPPO():
         # print(f'Critic Step time: {time.time() - st}')
         # print('_'*50)
 
-        return (value_loss, critic_grad_norm, policy_loss,
+        return (value_loss, critic_grad_norm, policy_loss, 
                 dist_entropy, actor_grad_norm, imp_weights,
-                actor_backward_time, critic_backward_time, cbf_loss_val)
+                actor_backward_time, critic_backward_time)
 
     def train(self, 
             buffer:GraphReplayBuffer, 
@@ -419,7 +338,6 @@ class GR_MAPPO():
         train_info['actor_grad_norm'] = 0
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
-        train_info['cbf_loss'] = 0   # Stage-3B barrier loss
 
         self.update_counter = 0
 
@@ -443,12 +361,11 @@ class GR_MAPPO():
                 # print("Sample", sample)
 
                 value_loss, critic_grad_norm, policy_loss, dist_entropy, \
-                actor_grad_norm, imp_weights, actor_bt, critic_bt, cbf_loss_val = self.ppo_update(sample, update_actor, accumulation_steps)
-
+                actor_grad_norm, imp_weights, actor_bt, critic_bt = self.ppo_update(sample, update_actor, accumulation_steps)
+                
 
                 # actor_backward_time += actor_bt
                 # critic_backward_time += critic_bt
-                train_info['cbf_loss'] += cbf_loss_val
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
                 train_info['dist_entropy'] += dist_entropy.item()
