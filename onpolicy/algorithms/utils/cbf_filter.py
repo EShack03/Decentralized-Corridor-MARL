@@ -251,13 +251,19 @@ class CBFSafetyFilter:
         # test-binding diagnostic (read-only: counts which test blocks each move;
         # never changes a mask). Split by regime: "calm" = base alpha and full
         # horizon, "ramped" = the adaptive layer relaxed alpha and/or the horizon.
+        # Only ACTIVE aircraft are counted when the runner supplies agent_active:
+        # aircraft parked at their goal share one goal point per exit corridor, so
+        # including them would inflate the blocked / no-safe counts.
         self.bind_stats = {r: dict(steps=0, checks=0, passed=0, barrier_only=0,
                                    separation_only=0, both=0, steps_barrier_extra=0,
-                                   steps_barrier_causes_none=0)
+                                   steps_barrier_causes_none=0, steps_none=0,
+                                   steps_outside_tube=0)
                            for r in ("calm", "ramped")}
+        self.bind_skipped_inactive = 0
 
     @torch.no_grad()
-    def masks_for_threads(self, node_obs, adj, agent_world_states, agent_in_tube=None):
+    def masks_for_threads(self, node_obs, adj, agent_world_states, agent_in_tube=None,
+                          agent_active=None):
         """
         Compute availability masks for every agent in every thread.
 
@@ -272,6 +278,9 @@ class CBFSafetyFilter:
         agent_in_tube : (n_threads, num_agents) bool or None — per-agent "physically
                    inside its corridor tube" flag for the junction gap guard
                    (ignored unless gap_guard is on).
+        agent_active : (n_threads, num_agents) bool or None — False for aircraft
+                   parked at their goal; used ONLY to keep them out of the
+                   test-binding diagnostic (never changes a mask).
 
         Returns
         -------
@@ -288,7 +297,8 @@ class CBFSafetyFilter:
             for a in range(num_agents):
                 mask, none_safe = self._mask_one_agent(
                     node_obs[th, a], adj[th, a], agent_world_states[th], a, num_nodes,
-                    agent_in_tube_thread=(None if agent_in_tube is None else agent_in_tube[th]))
+                    agent_in_tube_thread=(None if agent_in_tube is None else agent_in_tube[th]),
+                    agent_active_thread=(None if agent_active is None else agent_active[th]))
                 available[th, a] = mask
                 no_safe[th, a] = none_safe
         return available, no_safe
@@ -312,7 +322,7 @@ class CBFSafetyFilter:
             v = np.clip(v + dv * h, self.v_min, self.v_max)
         return p.astype(np.float32), th.astype(np.float32), v.astype(np.float32)
 
-    def _record_binding(self, bar_ok, hard_ok, regime):
+    def _record_binding(self, bar_ok, hard_ok, regime, outside_tube=False):
         """Read-only bookkeeping for the test-binding diagnostic. For each of the
         K moves: passed both tests, blocked by the barrier test only, by the
         separation test only, or by both. Also counts the agent-steps where the
@@ -329,6 +339,10 @@ class CBFSafetyFilter:
             st["steps_barrier_extra"] += 1
         if hard_ok.any() and not (bar_ok & hard_ok).any():
             st["steps_barrier_causes_none"] += 1
+        if not (bar_ok & hard_ok).any():
+            st["steps_none"] += 1
+        if outside_tube:
+            st["steps_outside_tube"] += 1
 
     def _adaptive_alpha(self, ego_pos, ego_vel, ego_theta,
                         nbr_pos, nbr_vel, nbr_theta, ego):
@@ -393,7 +407,7 @@ class CBFSafetyFilter:
         return alpha_a, min_ang, m
 
     def _mask_one_agent(self, node_obs_a, adj_a, world_states_thread, ego, num_nodes,
-                        agent_in_tube_thread=None):
+                        agent_in_tube_thread=None, agent_active_thread=None):
         """
         node_obs_a : (num_nodes, node_feat)  ego agent `ego`'s node features
         adj_a      : (num_nodes, num_nodes)  the (shared) distance matrix
@@ -529,9 +543,14 @@ class CBFSafetyFilter:
         #     ok_hard each step; kept here as an explicit final guard).
         keep_hard = min_dist_after >= self.sep
         keep = keep_barrier & keep_hard  # (K,) bool
-        self._record_binding(bar_ok, hard_ok & keep_hard,
-                             "ramped" if (alpha_use > self.alpha + 1e-3 or hz_use < self.horizon)
-                             else "calm")
+        if agent_active_thread is None or bool(agent_active_thread[ego]):
+            self._record_binding(
+                bar_ok, hard_ok & keep_hard,
+                "ramped" if (alpha_use > self.alpha + 1e-3 or hz_use < self.horizon) else "calm",
+                outside_tube=(agent_in_tube_thread is not None
+                              and not bool(agent_in_tube_thread[ego])))
+        else:
+            self.bind_skipped_inactive += 1
 
         if keep.any():
             return keep.astype(np.float32), False

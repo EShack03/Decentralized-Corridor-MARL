@@ -872,7 +872,8 @@ class GMPERunner(Runner):
 						_mask, _no_safe = self.cbf_eval_filter.masks_for_threads(
 							np.concatenate(node_obs)[None],
 							np.concatenate(adj)[None], _wstate,
-							agent_in_tube=_win_tube)
+							agent_in_tube=_win_tube,
+							agent_active=np.array([not bool(a.status) for a in _wa], dtype=bool)[None])
 						_combined = available_actions * _mask[0]          # (na, n_act)
 						_empty = _combined.sum(axis=-1) == 0
 						_combined[_empty] = available_actions[_empty]     # never all-zero

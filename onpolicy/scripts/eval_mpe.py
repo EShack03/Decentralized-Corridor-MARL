@@ -394,17 +394,22 @@ def main(args):
               + (f" gap_guard_overrides={st['guard'] / n:.1%}" if _filt.gap_guard else ""))
 
     # --- test-binding diagnostic: which test actually blocks moves? -----------
+    # (active aircraft only; aircraft parked at their goal are excluded)
     if _filt is not None and hasattr(_filt, "bind_stats"):
+        _tot = sum(b["steps"] for b in _filt.bind_stats.values())
+        print(f"[cbf-binding] active aircraft-steps={_tot}  "
+              f"(parked aircraft-steps excluded: {_filt.bind_skipped_inactive})")
         for _reg, b in _filt.bind_stats.items():
             if b["steps"] == 0:
                 continue
             c, n = max(1, b["checks"]), b["steps"]
-            print(f"[cbf-binding] {_reg}: agent-steps={n}  move-checks={b['checks']}  "
+            print(f"[cbf-binding] {_reg}: share={n / max(1, _tot):.1%}  "
                   f"passed={b['passed'] / c:.1%}  barrier-only={b['barrier_only'] / c:.1%}  "
                   f"separation-only={b['separation_only'] / c:.1%}  both={b['both'] / c:.1%}  "
-                  f"| steps where barrier removed a move the separation test allowed="
-                  f"{b['steps_barrier_extra'] / n:.1%}  steps where barrier alone left no move="
-                  f"{b['steps_barrier_causes_none'] / n:.1%}")
+                  f"| barrier decisive={b['steps_barrier_extra'] / n:.1%}  "
+                  f"barrier alone left no move={b['steps_barrier_causes_none'] / n:.1%}  "
+                  f"no move passed (fallback)={b['steps_none'] / n:.1%}  "
+                  f"outside tube={b['steps_outside_tube'] / n:.1%}")
 
     # post process
     envs.close()
