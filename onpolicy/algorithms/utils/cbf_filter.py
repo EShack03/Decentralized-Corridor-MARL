@@ -248,6 +248,13 @@ class CBFSafetyFilter:
                                    sum_min_ang=0.0, min_min_ang=float("inf"),
                                    max_alpha=float(alpha),
                                    sum_horizon=0.0, min_horizon=int(self.horizon))
+        # test-binding diagnostic (read-only: counts which test blocks each move;
+        # never changes a mask). Split by regime: "calm" = base alpha and full
+        # horizon, "ramped" = the adaptive layer relaxed alpha and/or the horizon.
+        self.bind_stats = {r: dict(steps=0, checks=0, passed=0, barrier_only=0,
+                                   separation_only=0, both=0, steps_barrier_extra=0,
+                                   steps_barrier_causes_none=0)
+                           for r in ("calm", "ramped")}
 
     @torch.no_grad()
     def masks_for_threads(self, node_obs, adj, agent_world_states, agent_in_tube=None):
@@ -304,6 +311,24 @@ class CBFSafetyFilter:
             th = th + dtheta * h
             v = np.clip(v + dv * h, self.v_min, self.v_max)
         return p.astype(np.float32), th.astype(np.float32), v.astype(np.float32)
+
+    def _record_binding(self, bar_ok, hard_ok, regime):
+        """Read-only bookkeeping for the test-binding diagnostic. For each of the
+        K moves: passed both tests, blocked by the barrier test only, by the
+        separation test only, or by both. Also counts the agent-steps where the
+        barrier removed at least one move the separation test allowed, and where
+        the barrier alone left no move (separation test alone would have)."""
+        st = self.bind_stats[regime]
+        st["steps"] += 1
+        st["checks"] += int(bar_ok.size)
+        st["passed"] += int((bar_ok & hard_ok).sum())
+        st["barrier_only"] += int((~bar_ok & hard_ok).sum())
+        st["separation_only"] += int((bar_ok & ~hard_ok).sum())
+        st["both"] += int((~bar_ok & ~hard_ok).sum())
+        if (~bar_ok & hard_ok).any():
+            st["steps_barrier_extra"] += 1
+        if hard_ok.any() and not (bar_ok & hard_ok).any():
+            st["steps_barrier_causes_none"] += 1
 
     def _adaptive_alpha(self, ego_pos, ego_vel, ego_theta,
                         nbr_pos, nbr_vel, nbr_theta, ego):
@@ -445,6 +470,8 @@ class CBFSafetyFilter:
         base_adj = np.repeat(adj_a[None], K, axis=0)                        # (K,N,N)
 
         keep = np.ones(K, dtype=bool)          # passes every step so far
+        bar_ok = np.ones(K, dtype=bool)        # diagnostic: barrier test alone
+        hard_ok = np.ones(K, dtype=bool)       # diagnostic: separation test alone
         min_dist_overall = np.full(K, np.inf, dtype=np.float32)
 
         dth = self.prim_table[:, 0].astype(np.float32)   # (K,)
@@ -489,6 +516,8 @@ class CBFSafetyFilter:
             ok_barrier = (h_t - h_prev + alpha_use * h_prev) >= -self.eps
             ok_hard = step_min >= self.sep
             keep &= ok_barrier & ok_hard
+            bar_ok &= ok_barrier
+            hard_ok &= ok_hard
 
             h_prev = h_t
             # (once a primitive fails, it stays failed; we keep rolling the rest
@@ -500,6 +529,9 @@ class CBFSafetyFilter:
         #     ok_hard each step; kept here as an explicit final guard).
         keep_hard = min_dist_after >= self.sep
         keep = keep_barrier & keep_hard  # (K,) bool
+        self._record_binding(bar_ok, hard_ok & keep_hard,
+                             "ramped" if (alpha_use > self.alpha + 1e-3 or hz_use < self.horizon)
+                             else "calm")
 
         if keep.any():
             return keep.astype(np.float32), False

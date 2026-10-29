@@ -393,6 +393,19 @@ def main(args):
               f"heading_gate={_filt.heading_gate}){_hz_part}"
               + (f" gap_guard_overrides={st['guard'] / n:.1%}" if _filt.gap_guard else ""))
 
+    # --- test-binding diagnostic: which test actually blocks moves? -----------
+    if _filt is not None and hasattr(_filt, "bind_stats"):
+        for _reg, b in _filt.bind_stats.items():
+            if b["steps"] == 0:
+                continue
+            c, n = max(1, b["checks"]), b["steps"]
+            print(f"[cbf-binding] {_reg}: agent-steps={n}  move-checks={b['checks']}  "
+                  f"passed={b['passed'] / c:.1%}  barrier-only={b['barrier_only'] / c:.1%}  "
+                  f"separation-only={b['separation_only'] / c:.1%}  both={b['both'] / c:.1%}  "
+                  f"| steps where barrier removed a move the separation test allowed="
+                  f"{b['steps_barrier_extra'] / n:.1%}  steps where barrier alone left no move="
+                  f"{b['steps_barrier_causes_none'] / n:.1%}")
+
     # post process
     envs.close()
 
