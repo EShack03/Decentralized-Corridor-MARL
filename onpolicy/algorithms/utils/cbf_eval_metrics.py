@@ -50,10 +50,20 @@ def get_scenario(envs):
 def in_corridor_flags(scen, world, world_agents):
     """Per-agent bool: is this agent inside its own corridor tube right now?
     Uses the scenario's pure is_in_tube(world, pos, current_tube). None if
-    unavailable, so callers fall back to unsplit (overall-only) severity."""
+    unavailable, so callers fall back to unsplit (overall-only) severity.
+
+    Single-tube scenarios (e.g. the original working_three_phase_graph) have no
+    per-agent current_tube and their is_in_tube takes no tube index; for those the
+    one tube is every agent's own tube, so is_in_tube(world, pos) is used. This
+    keeps the junction gap guard and the in/out-corridor split working there too
+    (multi-tube scenarios take exactly the same path as before)."""
     if scen is None or not hasattr(scen, "is_in_tube"):
         return None
     try:
+        if getattr(scen, "current_tube", None) is None:
+            return np.array(
+                [bool(scen.is_in_tube(world, a.state.p_pos)) for a in world_agents],
+                dtype=bool)
         return np.array(
             [bool(scen.is_in_tube(world, a.state.p_pos, int(scen.current_tube[a.id])))
              for a in world_agents],
