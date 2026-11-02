@@ -568,6 +568,14 @@ def cmd_reproduce(args):
     # manifest exists before anything executes and the job pool has the full list.
     jobs_list, manifest = [], []
     for i, (spec, s) in enumerate(full, 1):
+        # --policy swaps the policy of every run in the phase (e.g. the ORIGINAL
+        # policy under the adaptive filter, to complete the policy x filter table).
+        _pol_over = getattr(args, "policy", None)
+        if _pol_over and _pol_over != spec["policy_key"]:
+            spec = dict(spec, policy_key=_pol_over)
+            _pol_suffix = "_orig" if _pol_over == "original" else f"_{_pol_over}"
+        else:
+            _pol_suffix = ""
         pol = REPRO_POLICIES[spec["policy_key"]]
         _tag = spec["tag"]
         if getattr(args, "barrier_off", False):
@@ -587,6 +595,7 @@ def cmd_reproduce(args):
             _tag = f"{_tag}_sr{float(args.sense_range):g}"
         if float(getattr(args, "sep_scale", 1.0)) != 1.0:
             _tag = f"{_tag}_sep{float(args.sep_scale):g}"
+        _tag = f"{_tag}{_pol_suffix}"   # policy override always last
         st = dict(tag=_tag, policy=pol["policy"], weights=pol["weights"])
         shim = argparse.Namespace(
             world_size=args.world_size, barrier=args.barrier,
@@ -769,6 +778,10 @@ def main():
                         "filter (e.g. --phase adaptive_h) -- suppress the ramp when "
                         "an agent is outside its corridor tube. The tag gets a _gap "
                         "suffix so guarded files don't collide with the un-guarded run.")
+    r.add_argument("--policy", choices=list(REPRO_POLICIES.keys()), default=None,
+                   help="run every config of the phase with this policy instead of "
+                        "the phase's own (e.g. --phase adaptive_h --policy original). "
+                        "The tag gets an _orig (or _<policy>) suffix.")
     r.add_argument("--sep_scale", type=float, default=1.0,
                    help="ablation: the filter keeps sep_scale x 152.4 m (safety "
                         "buffer); the LoS metric is unchanged. Tag suffix _sep<v>.")
