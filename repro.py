@@ -362,6 +362,8 @@ def cbf_eval_cmd(py, stage, filt, scenario, n, eplen, episodes, seed, args):
                     "--cbf_h_min", str(getattr(args, "h_min", 1))]
         if getattr(args, "gap_guard", False):
             cmd += ["--cbf_gap_guard"]   # Variant 1 junction gap guard
+        if getattr(args, "ignore_parked", False):
+            cmd += ["--cbf_ignore_parked"]   # drop parked aircraft from the filter
     if getattr(args, "show", False):
         cmd += ["--cbf_show"]
     return cmd
@@ -564,6 +566,9 @@ def cmd_reproduce(args):
         if getattr(args, "gap_guard", False):
             # distinguish the gap-guarded run from the un-guarded baseline.
             _tag = f"{_tag}_gap"
+        if getattr(args, "ignore_parked", False):
+            # parked aircraft excluded from the filter's neighbour set.
+            _tag = f"{_tag}_ip"
         st = dict(tag=_tag, policy=pol["policy"], weights=pol["weights"])
         shim = argparse.Namespace(
             world_size=args.world_size, barrier=args.barrier,
@@ -578,7 +583,8 @@ def cmd_reproduce(args):
             heading_gate=getattr(args, "heading_gate", 0.6),
             adaptive_horizon=spec.get("adaptive_horizon", False),
             h_min=getattr(args, "h_min", 1),
-            gap_guard=getattr(args, "gap_guard", False))
+            gap_guard=getattr(args, "gap_guard", False),
+            ignore_parked=getattr(args, "ignore_parked", False))
         cmd = [str(c) for c in cbf_eval_cmd(py, st, spec["filt"], scenario,
                spec["n"], eplen, args.episodes, s, shim)]
         label = (f"{spec['tag']} {spec['policy_key']}/{spec['filt']} "
@@ -741,6 +747,10 @@ def main():
                         "filter (e.g. --phase adaptive_h) -- suppress the ramp when "
                         "an agent is outside its corridor tube. The tag gets a _gap "
                         "suffix so guarded files don't collide with the un-guarded run.")
+    r.add_argument("--ignore_parked", action="store_true",
+                   help="drop aircraft that have reached their goal from the "
+                        "filter's neighbour set (separation test, barrier graph, "
+                        "adaptive ramp). The tag gets an _ip suffix.")
     r.add_argument("--jobs", type=int, default=1,
                    help="run this many evals concurrently (default 1 = serial, "
                         "streamed to the console). Use 3-4 on a 6-core box to cut "

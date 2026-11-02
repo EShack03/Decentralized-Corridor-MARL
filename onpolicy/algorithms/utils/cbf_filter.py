@@ -183,7 +183,7 @@ class CBFSafetyFilter:
                  adaptive_alpha=False, alpha_max=2.0, ell_thresh=0.32,
                  ell_hi=0.80, sense_range=None,
                  heading_gate=0.0, adaptive_horizon=False, h_min=1,
-                 gap_guard=False):
+                 gap_guard=False, ignore_parked=False):
         self.barrier = barrier
         self.prim_table = prim_table
         self.n_actions = prim_table.shape[0]
@@ -235,6 +235,21 @@ class CBFSafetyFilter:
         # untouched. in_tube is supplied per-agent by the runner from the
         # scenario's own is_in_tube (the SAME test as the in/out-corridor metric).
         self.gap_guard = bool(gap_guard)
+        # --- parked-aircraft exclusion (optional) -------------------------------
+        # When on (and the runner supplies agent_active), aircraft that have
+        # reached their goal (agent.status True) are dropped from the ego's
+        # neighbour set: the separation test, the barrier's candidate graph and
+        # the adaptive ramp. This matches the environment, which already treats
+        # them as gone: it skips collisions involving them, disconnects them from
+        # the policy's graph (adj rows/cols zeroed) and drops them from the
+        # nearest-neighbour features. Without it, every later arrival must keep
+        # 152 m from the aircraft parked around the SHARED goal point, and the
+        # parked aircraft carry a phantom velocity (reset_velocity() at the goal
+        # sets speed = v_min and a random heading, which the constant-velocity
+        # model extrapolates). A parked EGO gets an all-allowed mask (the env
+        # freezes it) and is left out of every diagnostic. Off by default so
+        # earlier results reproduce exactly.
+        self.ignore_parked = bool(ignore_parked)
         # --- Rung-2 geometry-adaptive look-ahead horizon (optional, proactive) --
         # When on, each agent's horizon is ramped DOWN from `self.horizon` toward
         # `h_min` on the SAME conflict-geometry severity m that drives alpha: more
@@ -279,8 +294,10 @@ class CBFSafetyFilter:
                    inside its corridor tube" flag for the junction gap guard
                    (ignored unless gap_guard is on).
         agent_active : (n_threads, num_agents) bool or None — False for aircraft
-                   parked at their goal; used ONLY to keep them out of the
-                   test-binding diagnostic (never changes a mask).
+                   parked at their goal. By default used ONLY to keep them out of
+                   the test-binding diagnostic (never changes a mask); with
+                   ignore_parked on it also drops them from every ego's
+                   neighbour set (see __init__).
 
         Returns
         -------
@@ -345,7 +362,7 @@ class CBFSafetyFilter:
             st["steps_outside_tube"] += 1
 
     def _adaptive_alpha(self, ego_pos, ego_vel, ego_theta,
-                        nbr_pos, nbr_vel, nbr_theta, ego):
+                        nbr_pos, nbr_vel, nbr_theta, ego, skip=None):
         """Rung-1 proactive, conflict-geometry alpha ramp.
 
         For every other agent j within `sense_range`, measure the angle between
@@ -379,6 +396,8 @@ class CBFSafetyFilter:
         na = nbr_pos.shape[0]
         for j in range(na):
             if j == ego:
+                continue
+            if skip is not None and skip[j]:      # parked aircraft (ignore_parked)
                 continue
             p_rel = nbr_pos[j] - ego_pos          # line of approach (j minus ego)
             d = float(np.linalg.norm(p_rel))
@@ -427,6 +446,19 @@ class CBFSafetyFilter:
         nbr_vel = np.stack([nbr_speed * np.cos(nbr_theta),
                             nbr_speed * np.sin(nbr_theta)], axis=1)        # (na, 2)
 
+        # parked-aircraft exclusion (see __init__ ignore_parked). `parked` is a
+        # (na,) bool mask of aircraft to drop from the neighbour set, or None.
+        parked = None
+        if self.ignore_parked and agent_active_thread is not None:
+            _act = np.asarray(agent_active_thread, dtype=bool)
+            if not _act[ego]:
+                # the ego itself has parked: the env freezes it, so its mask has
+                # no effect -- allow everything and keep it out of the stats.
+                self.bind_skipped_inactive += 1
+                return np.ones(self.n_actions, dtype=np.float32), False
+            parked = ~_act
+            parked_idx = np.flatnonzero(parked)
+
         # per-agent class-K gain: constant (= self.alpha) unless the geometry-
         # adaptive ramp is enabled, in which case it is raised from self.alpha
         # toward self.alpha_max by this agent's local conflict-geometry signal.
@@ -436,7 +468,7 @@ class CBFSafetyFilter:
                                dtype=np.float32)                            # (2,)
             alpha_a, _min_ang, _m = self._adaptive_alpha(
                 ego_state[:2].astype(np.float32), ego_vel, float(ego_state[2]),
-                other_agent_pos, nbr_vel, nbr_theta, ego)
+                other_agent_pos, nbr_vel, nbr_theta, ego, skip=parked)
             # junction gap guard: outside the corridor, cancel the ramp (force
             # m=0 -> deployed long horizon + base alpha). See __init__ gap_guard.
             if (self.gap_guard and agent_in_tube_thread is not None
@@ -513,10 +545,17 @@ class CBFSafetyFilter:
             cand_adj[:, ego, :na] = dists
             cand_adj[:, :na, ego] = dists
             cand_adj[np.arange(K), ego, ego] = 0.0
+            if parked is not None and parked_idx.size:
+                # keep parked aircraft disconnected (adj 0 = no edge), exactly as
+                # in the env's own graph used for h at t=0.
+                cand_adj[:, ego, parked_idx] = 0.0
+                cand_adj[:, parked_idx, ego] = 0.0
 
             # nearest OTHER agent this step (ignore self column)
             d_others = dists.copy()
             d_others[:, ego] = np.inf
+            if parked is not None:
+                d_others[:, parked] = np.inf          # parked aircraft are not traffic
             step_min = d_others.min(axis=1)                                # (K,)
             min_dist_overall = np.minimum(min_dist_overall, step_min)
 

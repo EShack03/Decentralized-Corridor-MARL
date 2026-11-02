@@ -124,6 +124,12 @@ def parse_args(args, parser):
     parser.add_argument("--cbf_h_min", type=int, default=1,
                         help="shortest horizon the adaptive ramp can reach (used only "
                              "with --cbf_adaptive_horizon). Default 1.")
+    parser.add_argument("--cbf_ignore_parked", action="store_true",
+                        help="drop aircraft that have reached their goal (agent.status "
+                             "True) from the filter's neighbour set: separation test, "
+                             "barrier candidate graph and adaptive ramp. Matches the "
+                             "env, which already ignores them for collisions and the "
+                             "policy graph. Off by default (reproduces earlier runs).")
     parser.add_argument("--cbf_gap_guard", action="store_true",
                         help="Variant 1 junction gap guard: suppress the adaptive ramp "
                              "(force base alpha / deployed horizon) for any agent NOT "
@@ -262,7 +268,8 @@ def _attach_cbf_eval(runner, all_args, device):
             heading_gate=all_args.cbf_heading_gate,
             adaptive_horizon=all_args.cbf_adaptive_horizon,
             h_min=all_args.cbf_h_min,
-            gap_guard=all_args.cbf_gap_guard)
+            gap_guard=all_args.cbf_gap_guard,
+            ignore_parked=all_args.cbf_ignore_parked)
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon
