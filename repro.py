@@ -364,6 +364,9 @@ def cbf_eval_cmd(py, stage, filt, scenario, n, eplen, episodes, seed, args):
             cmd += ["--cbf_gap_guard"]   # Variant 1 junction gap guard
         if getattr(args, "ignore_parked", False):
             cmd += ["--cbf_ignore_parked"]   # drop parked aircraft from the filter
+        _ss = float(getattr(args, "sep_scale", 1.0))
+        if _ss != 1.0:
+            cmd += ["--cbf_sep_scale", str(_ss)]   # filter separation buffer
         if getattr(args, "barrier_off", False):
             # ablation: eps so large the barrier test always passes, leaving only
             # the predicted 152 m separation test (+ ramp, guard, fallback).
@@ -576,6 +579,14 @@ def cmd_reproduce(args):
         if getattr(args, "ignore_parked", False):
             # parked aircraft excluded from the filter's neighbour set.
             _tag = f"{_tag}_ip"
+        # one-off ablations get their own suffix so they never share a name (or a
+        # results folder) with the headline runs.
+        if spec.get("adaptive", False) and float(getattr(args, "alpha_max", 2.0)) != 2.0:
+            _tag = f"{_tag}_amax{float(args.alpha_max):g}"
+        if spec.get("adaptive", False) and getattr(args, "sense_range", None) is not None:
+            _tag = f"{_tag}_sr{float(args.sense_range):g}"
+        if float(getattr(args, "sep_scale", 1.0)) != 1.0:
+            _tag = f"{_tag}_sep{float(args.sep_scale):g}"
         st = dict(tag=_tag, policy=pol["policy"], weights=pol["weights"])
         shim = argparse.Namespace(
             world_size=args.world_size, barrier=args.barrier,
@@ -592,7 +603,8 @@ def cmd_reproduce(args):
             h_min=getattr(args, "h_min", 1),
             gap_guard=getattr(args, "gap_guard", False),
             ignore_parked=getattr(args, "ignore_parked", False),
-            barrier_off=getattr(args, "barrier_off", False))
+            barrier_off=getattr(args, "barrier_off", False),
+            sep_scale=getattr(args, "sep_scale", 1.0))
         cmd = [str(c) for c in cbf_eval_cmd(py, st, spec["filt"], scenario,
                spec["n"], eplen, args.episodes, s, shim)]
         label = (f"{spec['tag']} {spec['policy_key']}/{spec['filt']} "
@@ -757,6 +769,9 @@ def main():
                         "filter (e.g. --phase adaptive_h) -- suppress the ramp when "
                         "an agent is outside its corridor tube. The tag gets a _gap "
                         "suffix so guarded files don't collide with the un-guarded run.")
+    r.add_argument("--sep_scale", type=float, default=1.0,
+                   help="ablation: the filter keeps sep_scale x 152.4 m (safety "
+                        "buffer); the LoS metric is unchanged. Tag suffix _sep<v>.")
     r.add_argument("--barrier_off", action="store_true",
                    help="ablation: switch the learned-barrier test off (--cbf_eps "
                         "1000) so only the predicted separation test remains. "

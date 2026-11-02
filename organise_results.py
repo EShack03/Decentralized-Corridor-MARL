@@ -112,6 +112,8 @@ def classify(m):
         return DEST / "05_stall_trigger"
     if "_nobar" in tag:
         return DEST / "11_barrier_off" / scen
+    if any(k in tag for k in ("_amax", "_sr", "_sep")):
+        return DEST / "12_ablations" / scen
     if tag.endswith("_ip"):
         return DEST / "10_ignore_parked" / scen
     if tag.endswith("_gap"):

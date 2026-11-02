@@ -124,6 +124,11 @@ def parse_args(args, parser):
     parser.add_argument("--cbf_h_min", type=int, default=1,
                         help="shortest horizon the adaptive ramp can reach (used only "
                              "with --cbf_adaptive_horizon). Default 1.")
+    parser.add_argument("--cbf_sep_scale", type=float, default=1.0,
+                        help="safety buffer for the FILTER's separation test only: "
+                             "the filter keeps sep_scale x 152.4 m (e.g. 1.2 -> 183 m). "
+                             "The loss-of-separation metric stays at 152.4 m. "
+                             "Default 1.0 (reproduces earlier runs).")
     parser.add_argument("--cbf_ignore_parked", action="store_true",
                         help="drop aircraft that have reached their goal (agent.status "
                              "True) from the filter's neighbour set: separation test, "
@@ -255,7 +260,8 @@ def _attach_cbf_eval(runner, all_args, device):
         barrier.load_state_dict(torch.load(all_args.cbf_barrier, map_location=bdev))
         barrier.eval()
         runner.cbf_eval_filter = CBFSafetyFilter(
-            barrier=barrier, prim_table=prim_table, sep=_CBF_SEP, dt=_CBF_DT,
+            barrier=barrier, prim_table=prim_table,
+            sep=_CBF_SEP * all_args.cbf_sep_scale, dt=_CBF_DT,
             v_min=_CBF_V_MIN, v_max=_CBF_V_MAX,
             alpha=all_args.cbf_alpha, eps=all_args.cbf_eps,
             horizon=all_args.cbf_horizon, fallback=all_args.cbf_fallback,
