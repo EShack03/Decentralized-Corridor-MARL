@@ -110,6 +110,10 @@ def classify(m):
         return DEST / "03_adaptive_rung1"
     if tag.startswith("HLadapt_stall"):
         return DEST / "05_stall_trigger"
+    if "_nobar" in tag:
+        return DEST / "11_barrier_off" / scen
+    if tag.endswith("_ip"):
+        return DEST / "10_ignore_parked" / scen
     if tag.endswith("_gap"):
         return DEST / "06_gap_guard" / scen
     if tag.startswith(("HLfix", "HLcomp", "HLadapt", "ADH_")):

@@ -364,6 +364,10 @@ def cbf_eval_cmd(py, stage, filt, scenario, n, eplen, episodes, seed, args):
             cmd += ["--cbf_gap_guard"]   # Variant 1 junction gap guard
         if getattr(args, "ignore_parked", False):
             cmd += ["--cbf_ignore_parked"]   # drop parked aircraft from the filter
+        if getattr(args, "barrier_off", False):
+            # ablation: eps so large the barrier test always passes, leaving only
+            # the predicted 152 m separation test (+ ramp, guard, fallback).
+            cmd += ["--cbf_eps", "1000"]
     if getattr(args, "show", False):
         cmd += ["--cbf_show"]
     return cmd
@@ -563,6 +567,9 @@ def cmd_reproduce(args):
     for i, (spec, s) in enumerate(full, 1):
         pol = REPRO_POLICIES[spec["policy_key"]]
         _tag = spec["tag"]
+        if getattr(args, "barrier_off", False):
+            # barrier-off ablation (separation test only).
+            _tag = f"{_tag}_nobar"
         if getattr(args, "gap_guard", False):
             # distinguish the gap-guarded run from the un-guarded baseline.
             _tag = f"{_tag}_gap"
@@ -584,12 +591,15 @@ def cmd_reproduce(args):
             adaptive_horizon=spec.get("adaptive_horizon", False),
             h_min=getattr(args, "h_min", 1),
             gap_guard=getattr(args, "gap_guard", False),
-            ignore_parked=getattr(args, "ignore_parked", False))
+            ignore_parked=getattr(args, "ignore_parked", False),
+            barrier_off=getattr(args, "barrier_off", False))
         cmd = [str(c) for c in cbf_eval_cmd(py, st, spec["filt"], scenario,
                spec["n"], eplen, args.episodes, s, shim)]
         label = (f"{spec['tag']} {spec['policy_key']}/{spec['filt']} "
                  f"N={spec['n']} h={spec['horizon']} seed={s}")
-        logname = (f"{spec['tag']}_{spec['policy_key']}_{spec['filt']}_"
+        # full tag (incl. _nobar/_gap/_ip suffixes) + scenario, so logs from
+        # different variants or scenarios never overwrite each other.
+        logname = (f"{_tag}_{scenario}_{spec['policy_key']}_{spec['filt']}_"
                    f"N{spec['n']}_h{spec['horizon']}_seed{s}.log")
         jobs_list.append(dict(idx=i, cmd=cmd, label=label, log=logname))
         manifest.append(dict(label=label, **spec, seed=s))
@@ -747,6 +757,10 @@ def main():
                         "filter (e.g. --phase adaptive_h) -- suppress the ramp when "
                         "an agent is outside its corridor tube. The tag gets a _gap "
                         "suffix so guarded files don't collide with the un-guarded run.")
+    r.add_argument("--barrier_off", action="store_true",
+                   help="ablation: switch the learned-barrier test off (--cbf_eps "
+                        "1000) so only the predicted separation test remains. "
+                        "The tag gets a _nobar suffix.")
     r.add_argument("--ignore_parked", action="store_true",
                    help="drop aircraft that have reached their goal from the "
                         "filter's neighbour set (separation test, barrier graph, "
