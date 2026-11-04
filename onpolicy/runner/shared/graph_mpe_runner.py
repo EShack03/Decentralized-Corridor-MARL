@@ -33,6 +33,12 @@ def _cbf_trace_rows(world, scen, episode, step, writer, sep=0.1524):
 		SP = np.array([float(a.state.speed) for a in ags], dtype=np.float64)
 		tp = getattr(world, "tube_params", None)
 		ct = getattr(scen, "current_tube", None)
+		pr = getattr(scen, "phase_reached", None)   # furthest valid stage on the current tube
+		if isinstance(tp, dict):                    # single-corridor scenario: one tube, no current_tube
+			tp = [tp]
+			if ct is None:
+				ct = np.zeros(len(ags), dtype=int)
+		ntubes = len(tp) if tp is not None else 0
 		na = len(ags)
 		for i in range(na):
 			min_sep, lead_id, lead_d, hd = np.inf, -1, np.inf, float("nan")
@@ -50,6 +56,7 @@ def _cbf_trace_rows(world, scen, episode, step, writer, sep=0.1524):
 					hd = abs((dh + np.pi) % (2.0 * np.pi) - np.pi)  # wrap to [0, pi]
 			tb = int(ct[i]) if ct is not None else -1
 			s, in_tube = float("nan"), -1
+			lat, hw, L = float("nan"), float("nan"), float("nan")
 			if tp is not None and 0 <= tb < len(tp):                # geometric in_tube
 				en = np.asarray(tp[tb]["entrance"], dtype=np.float64)
 				ex = np.asarray(tp[tb]["exit"], dtype=np.float64)
@@ -61,11 +68,14 @@ def _cbf_trace_rows(world, scen, episode, step, writer, sep=0.1524):
 				s = float(np.dot(P[i] - en, e))
 				lat = float(np.dot(P[i] - en, n))
 				in_tube = int((-1e-6 <= s <= L + 1e-6) and (abs(lat) <= hw))
+			ph = int(pr[i]) if pr is not None else -1
+			st = int(bool(getattr(ags[i], "status", False)))
 			writer.writerow([episode, step, i, f"{P[i, 0]:.4f}", f"{P[i, 1]:.4f}",
 				f"{TH[i]:.4f}", f"{SP[i]:.4f}", tb, f"{s:.4f}", in_tube,
 				f"{min_sep:.4f}", int(min_sep < sep), lead_id,
 				f"{lead_d:.4f}" if np.isfinite(lead_d) else "nan",
-				f"{hd:.4f}" if np.isfinite(hd) else "nan"])
+				f"{hd:.4f}" if np.isfinite(hd) else "nan",
+				f"{lat:.4f}", f"{hw:.4f}", f"{L:.4f}", ph, st, ntubes])
 	except Exception:
 		pass
 
@@ -748,14 +758,20 @@ class GMPERunner(Runner):
 			# === end CBF eval metrics ===
 
 			# === CBF trace (diagnostic) — set CBF_TRACE=1 to log in_tube vs conflict.
-			# Writes <model_dir>/cbf_trace_ep<episode>.csv; off by default. ===
+			# Writes cbf_traces/<tag>_<scenario>_N<n>_seed<s>_ep<episode>.csv (repo
+			# root; <tag> = the run's eval tag, so parallel runs never clobber each
+			# other); off by default. Read with analyse_traces.py. ===
 			_trace_on = bool(os.environ.get("CBF_TRACE"))
 			if _trace_on:
-				_trace_f = open(f"{self.all_args.model_dir}/cbf_trace_ep{episode}.csv", "w", newline="")
+				os.makedirs("cbf_traces", exist_ok=True)
+				_ttag = getattr(self.all_args, "run_stage", None) or getattr(self.all_args, "eval_tag", "eval")
+				_trace_f = open(f"cbf_traces/{_ttag}_{self.all_args.scenario_name}_N{self.num_agents}"
+					f"_seed{int(self.all_args.seed)}_ep{episode}.csv", "w", newline="")
 				_trace_w = csv.writer(_trace_f)
 				_trace_w.writerow(["ep", "step", "agent", "x", "y", "theta", "speed",
 					"current_tube", "s_along", "in_tube", "min_sep", "los",
-					"leader_id", "leader_dist", "heading_diff"])
+					"leader_id", "leader_dist", "heading_diff",
+					"lat", "half_width", "L", "phase_reached", "status", "n_tubes"])
 			# === end CBF trace init ===
 
 			for step in range(self.episode_length):
