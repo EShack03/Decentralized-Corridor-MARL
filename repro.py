@@ -564,10 +564,16 @@ def cmd_reproduce(args):
     print(f"            configs={len(runs)}   total runs={len(full)}")
     print("=" * 70)
 
+    # Results that already exist are skipped, so a batch never repeats work
+    # (results_index.py does the lookup; --rerun turns the check off).
+    import results_index
+    have = None if getattr(args, "rerun", False) else results_index.existing_runs()
+    skipped = []
+
     # Build every run up-front (resolved command + label + manifest row), so the
     # manifest exists before anything executes and the job pool has the full list.
     jobs_list, manifest = [], []
-    for i, (spec, s) in enumerate(full, 1):
+    for spec, s in full:
         # --policy swaps the policy of every run in the phase (e.g. the ORIGINAL
         # policy under the adaptive filter, to complete the policy x filter table).
         _pol_over = getattr(args, "policy", None)
@@ -597,6 +603,15 @@ def cmd_reproduce(args):
             _tag = f"{_tag}_sep{float(args.sep_scale):g}"
         _tag = f"{_tag}{_pol_suffix}"   # policy override always last
         st = dict(tag=_tag, policy=pol["policy"], weights=pol["weights"])
+        label = (f"{spec['tag']} {spec['policy_key']}/{spec['filt']} "
+                 f"N={spec['n']} h={spec['horizon']} seed={s}")
+        if have is not None:
+            prev = results_index.find_existing(
+                have, results_index.run_key(_tag, pol["policy"], spec["filt"], scenario,
+                                            spec["n"], args.episodes, f"seed{s}"), eplen)
+            if prev is not None:
+                skipped.append((f"{_tag} {label.split(' ', 1)[1]}", prev))
+                continue
         shim = argparse.Namespace(
             world_size=args.world_size, barrier=args.barrier,
             alpha=spec.get("alpha", args.alpha), horizon=spec["horizon"],
@@ -616,14 +631,23 @@ def cmd_reproduce(args):
             sep_scale=getattr(args, "sep_scale", 1.0))
         cmd = [str(c) for c in cbf_eval_cmd(py, st, spec["filt"], scenario,
                spec["n"], eplen, args.episodes, s, shim)]
-        label = (f"{spec['tag']} {spec['policy_key']}/{spec['filt']} "
-                 f"N={spec['n']} h={spec['horizon']} seed={s}")
         # full tag (incl. _nobar/_gap/_ip suffixes) + scenario, so logs from
         # different variants or scenarios never overwrite each other.
         logname = (f"{_tag}_{scenario}_{spec['policy_key']}_{spec['filt']}_"
                    f"N{spec['n']}_h{spec['horizon']}_seed{s}.log")
-        jobs_list.append(dict(idx=i, cmd=cmd, label=label, log=logname))
+        jobs_list.append(dict(idx=len(jobs_list) + 1, cmd=cmd, label=label, log=logname))
         manifest.append(dict(label=label, **spec, seed=s))
+
+    if skipped:
+        print(f"skipping {len(skipped)} run(s) whose result already exists "
+              f"(--rerun to force):")
+        for lab, prev in skipped:
+            note = "" if prev["episode_length"] else "  (episode length not recorded in that file)"
+            print(f"  [have] {lab}  <- {prev['folder']}/{prev['file']}{note}")
+    if not jobs_list:
+        print("Nothing to run: every requested result already exists.")
+        return
+    print(f"to run: {len(jobs_list)} of {len(full)}")
 
     man_path = (f"repro_manifest_{args.phase}_"
                 f"{datetime.datetime.now():%y%m%d_%H%M%S}.csv")
@@ -798,6 +822,10 @@ def main():
                         "streamed to the console). Use 3-4 on a 6-core box to cut "
                         "wall-clock ~2-3x; each parallel run logs to repro_logs/. "
                         "Lower it if RAM is tight (~1.5-2.5 GB per run).")
+    r.add_argument("--rerun", action="store_true",
+                   help="run even if the result already exists (by default a run "
+                        "whose result file is already in the repo root or "
+                        "run_results/ is skipped; see results_index.py)")
     r.add_argument("--dry_run", action="store_true",
                    help="print the full run matrix + commands, execute nothing")
     r.add_argument("--show", action="store_true",

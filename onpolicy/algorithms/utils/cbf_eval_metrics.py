@@ -145,6 +145,29 @@ def result_filename(all_args, filtered):
     return f"{stage}_{policy}_{filt}_{scen}N{N}_{eps}ep_{seedslug}_{date}.txt"
 
 
+# Settings written into every result file's "# config:" line (added), so a result
+# says which episode length and filter options produced it; results_index.py and
+# repro.py read it to catalogue results and skip runs that already exist.
+_CONFIG_KEYS = ("episode_length", "cbf_neighbour_model", "cbf_horizon", "cbf_alpha",
+                "cbf_eps", "cbf_fallback", "cbf_adaptive", "cbf_alpha_max",
+                "cbf_sense_range", "cbf_heading_gate", "cbf_adaptive_horizon",
+                "cbf_h_min", "cbf_gap_guard", "cbf_ignore_parked", "cbf_sep_scale",
+                "model_dir")
+
+
+def _config_line(all_args):
+    parts = [f"{k}={getattr(all_args, k)}" for k in _CONFIG_KEYS if hasattr(all_args, k)]
+    try:
+        import subprocess
+        commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True,
+                                text=True, timeout=10).stdout.strip()
+    except Exception:
+        commit = ""
+    if commit:
+        parts.append(f"commit={commit}")
+    return "# config: " + "  ".join(str(p).replace(" ", "_") for p in parts) + "\n"
+
+
 # --- the collector ------------------------------------------------------------
 class CBFEvalCollector:
     """Drives the extra metrics from inside render() with minimal footprint.
@@ -293,6 +316,7 @@ class CBFEvalCollector:
                     f"(computed inside the original render() loop)\n")
             f.write(f"# N={all_args.num_agents}  episodes={all_args.render_episodes}  "
                     f"seed={all_args.seed}  scenario={all_args.scenario_name}\n")
+            f.write(_config_line(all_args))
             f.write(f"# collisions = losses of separation (LoS): agent-pair-steps within "
                     f"{SEP:.4f} km (500 ft), per episode\n\n")
             for ln in self._lines(all_args, s):

@@ -16,6 +16,13 @@
 #     07_no_filter/<scen>/          policies with no filter: BASE (original), S3B (3B)
 #     08_other/<scen>/              anything else with a recognised result name
 #     09_smoke_tests/               runs of 5 episodes or fewer
+#     10_ignore_parked/<scen>/      filters that ignore parked aircraft (_ip): plain
+#                                   3 s filter (S2_ip), look-ahead sweep (HZ_h*_ip)
+#     11_barrier_off/<scen>/        learned barrier switched off (_nobar)
+#     12_ablations/<scen>/          alpha cap / sensing range / separation buffer
+#     14_policy_swap/<scen>/        another policy under a filter (_orig): the final
+#                                   filter with the original policy (F0)
+#     index.tsv                     catalogue of every result (results_index.py)
 #     _superseded/                  config-bug-era, early smoke and superseded files
 #     manifests/                    repro_manifest_*.csv run lists (local only)
 #
@@ -26,7 +33,8 @@
 # Safe by default: without --apply it only PRINTS the plan.
 #   python organise_results.py            # show what would move
 #   python organise_results.py --apply    # do it
-# Re-run after every batch of evals: it only touches files not yet filed.
+# Re-run after every batch of evals: it only touches files not yet filed, and it
+# rebuilds run_results/index.tsv, which repro.py uses to skip runs already done.
 # ============================================================================
 import argparse
 import os
@@ -84,6 +92,10 @@ files them here (re-run it after each batch). Folder numbers follow the Run Resu
 | `07_no_filter/<scenario>/` | no filter: original policy (BASE) and 3B policy (S3B) | 2.5-2.7 |
 | `08_other/` | any other recognised result | - |
 | `09_smoke_tests/` | runs of 5 episodes or fewer | - |
+| `10_ignore_parked/<scenario>/` | filters that ignore parked aircraft (`_ip`): plain 3 s filter (`S2_ip`), look-ahead sweep (`HZ_h*_ip`) | 2.13 onwards |
+| `11_barrier_off/<scenario>/` | learned barrier switched off (`_nobar`) | 2.8 onwards |
+| `12_ablations/<scenario>/` | alpha cap, sensing range, separation buffer (`_amax`, `_sr`, `_sep`) | 2.10-2.11 |
+| `14_policy_swap/<scenario>/` | a policy run under another configuration's filter (`_orig`), incl. the **final filter F0** with the original policy | 2.10-2.12 |
 | `_superseded/` | config-bug era, early smoke runs, superseded sweeps | provenance doc |
 | `manifests/` | run lists written by `repro.py reproduce` (local only, not in git) | - |
 
@@ -93,6 +105,12 @@ constant-velocity filter, merge, 15 aircraft, 30 episodes, seed 1, run on 25 Oct
 Each `.txt` has a per-episode twin `<same name>_perep.csv` (kept locally; `.gitignore` excludes csv).
 Scenarios: `seq` = sequential, `merge`, `single`, `three_phase_graph_merge_sequential` = mergeseq.
 Note: the episode length is not in the name; see the Ledger for which runs used 200 s or 300 s.
+
+**Index:** `run_results/index.tsv` lists every result (settings, seed, episode length,
+headline numbers, superseded or not). `python results_index.py --find S2_ip seqN20` finds
+results by name. `repro.py reproduce` skips any run whose result is already here (`--rerun`
+forces it). Results written since the archive patch carry a `# config:` line with the
+episode length and filter settings; older files show the episode length as blank.
 
 **Collating:** `collate_repro.py` reads one folder, e.g.
 `python collate_repro.py --dir run_results/06_gap_guard/mergeseq`.
@@ -176,6 +194,8 @@ def main():
     moves = [(s, d) for s, d in plan_moves() if s.resolve() != d.resolve()]
     if not moves:
         print("Nothing to organise: every result is already filed.")
+        if args.apply:
+            rebuild_index()
         return
     tracked = tracked_files()
     by_dir = {}
@@ -208,10 +228,19 @@ def main():
             if not os.listdir(root):
                 os.rmdir(root)
     readme = DEST / "README.md"
-    if not readme.exists():
+    if not readme.exists() or readme.read_text(encoding="utf-8") != README:
         readme.write_text(README, encoding="utf-8")
         print(f"wrote {readme}")
+    rebuild_index()
     print("Done. Review with `git status`, then commit.")
+
+
+def rebuild_index():
+    """Refresh run_results/index.tsv (what repro.py checks before running)."""
+    import results_index
+    rows = results_index.scan()
+    results_index.write_index(rows)
+    print(f"index: {len(rows)} result files -> {results_index.INDEX}")
 
 
 if __name__ == "__main__":
