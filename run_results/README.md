@@ -14,6 +14,10 @@ files them here (re-run it after each batch). Folder numbers follow the Run Resu
 | `07_no_filter/<scenario>/` | no filter: original policy (BASE) and 3B policy (S3B) | 2.5-2.7 |
 | `08_other/` | any other recognised result | - |
 | `09_smoke_tests/` | runs of 5 episodes or fewer | - |
+| `10_ignore_parked/<scenario>/` | filters that ignore parked aircraft (`_ip`): plain 3 s filter (`S2_ip`), look-ahead sweep (`HZ_h*_ip`) | 2.13 onwards |
+| `11_barrier_off/<scenario>/` | learned barrier switched off (`_nobar`) | 2.8 onwards |
+| `12_ablations/<scenario>/` | alpha cap, sensing range, separation buffer (`_amax`, `_sr`, `_sep`) | 2.10-2.11 |
+| `14_policy_swap/<scenario>/` | a policy run under another configuration's filter (`_orig`), incl. the **final filter F0** with the original policy | 2.10-2.12 |
 | `_superseded/` | config-bug era, early smoke runs, superseded sweeps | provenance doc |
 | `manifests/` | run lists written by `repro.py reproduce` (local only, not in git) | - |
 
@@ -23,6 +27,12 @@ constant-velocity filter, merge, 15 aircraft, 30 episodes, seed 1, run on 25 Oct
 Each `.txt` has a per-episode twin `<same name>_perep.csv` (kept locally; `.gitignore` excludes csv).
 Scenarios: `seq` = sequential, `merge`, `single`, `three_phase_graph_merge_sequential` = mergeseq.
 Note: the episode length is not in the name; see the Ledger for which runs used 200 s or 300 s.
+
+**Index:** `run_results/index.tsv` lists every result (settings, seed, episode length,
+headline numbers, superseded or not). `python results_index.py --find S2_ip seqN20` finds
+results by name. `repro.py reproduce` skips any run whose result is already here (`--rerun`
+forces it). Results written since the archive patch carry a `# config:` line with the
+episode length and filter settings; older files show the episode length as blank.
 
 **Collating:** `collate_repro.py` reads one folder, e.g.
 `python collate_repro.py --dir run_results/06_gap_guard/mergeseq`.

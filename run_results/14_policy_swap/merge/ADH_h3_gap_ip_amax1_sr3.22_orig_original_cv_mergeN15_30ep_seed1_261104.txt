@@ -1,0 +1,32 @@
+# CBF eval result [ADH_h3_gap_ip_amax1_sr3.22_orig]  2026-11-04 16:48:39.596027
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=15  episodes=30  seed=1  scenario=three_phase_graph_merge
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [ADH_h3_gap_ip_amax1_sr3.22_orig] - FILTERED SYSTEM  (N=15, episodes=30, seed=1)
+  filter: neighbour=constant_velocity, alpha=1.0, horizon=3, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         0.267
+  collisions cross-check                 0.267
+mean success rate                       96.44%
+corridor conformance                    98.82%
+collision-free episodes                  86.7%
+min separation (km)                      0.077
+mean closest approach (km)               0.292
+max intrusion depth (km)                 0.006
+integrated intrusion (km.st)             0.009
+near-miss rate %                          0.09
+spacing violations %                      0.03
+throughput (agents/min)                  4.335
+completion time (s)                     214.23
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   0.100
+collisions outside corridor              0.167
+max intrusion in (km)                    0.001
+max intrusion out (km)                   0.005
+
+no-safe-action rate    : 0.13%  (of 101235 agent-steps)
+avg primitives blocked : 0.04 / 25 per step
