@@ -18,17 +18,46 @@ from onpolicy.envs.env_wrappers import SubprocVecEnv, DummyVecEnv, GraphSubprocV
 
 """Train script for MPEs."""
 
+# [ES] added: short layout names for --lag_scenarios (same names as repro.py)
+LAG_SCENARIOS = {
+    "single": "working_three_phase_graph",
+    "sequential": "three_phase_graph_sequential",
+    "merge": "three_phase_graph_merge",
+    "mergeseq": "three_phase_graph_merge_sequential",
+}
+
+
+def _rank_args(all_args, rank):
+    """[ES] added: with --lag_scenarios, rollout worker `rank` runs layout
+    rank % len(list), so one training batch mixes the layouts. Otherwise the
+    args are returned unchanged."""
+    names = [s for s in (getattr(all_args, "lag_scenarios", "") or "").split(",") if s]
+    if not names:
+        return all_args
+    import copy
+    a = copy.copy(all_args)
+    s = names[rank % len(names)]
+    a.scenario_name = LAG_SCENARIOS.get(s, s)
+    return a
+
+
 def make_train_env(all_args:argparse.Namespace):
     def get_env_fn(rank:int):
         def init_env():
+            env_args = _rank_args(all_args, rank)   # [ES] added (no-op unless --lag_scenarios)
             if all_args.env_name == "MPE":
-                env = MPEEnv(all_args)
+                env = MPEEnv(env_args)
             elif all_args.env_name == "GraphMPE":
-                env = GraphMPEEnv(all_args)
+                env = GraphMPEEnv(env_args)
             else:
                 print(f"Can not support the {all_args.env_name} environment")
                 raise NotImplementedError
             env.seed(all_args.seed + rank * 1000)
+            # [ES] added: constrained training adds costs and filter masks to the
+            # infos (observations, rewards and dynamics are unchanged)
+            if getattr(all_args, "lag_enable", False):
+                from onpolicy.envs.cost_mask_wrapper import CostMaskEnv
+                env = CostMaskEnv(env, env_args)
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
@@ -135,6 +164,67 @@ def parse_args(args, parser):
                         help="Neighbour motion the filter assumes over its "
                         "one-step lookahead. static keeps Stages 2/3A/3B "
                         "consistent; constant_velocity is the committed upgrade.")
+
+    # ---- [ES] added: constrained fine-tuning (all off unless --lag_enable, so
+    # omitting these leaves training exactly as before). See
+    # graph_mappo_lag.py and graph_mpe_runner_lag.py. ----
+    parser.add_argument("--lag_enable", action="store_true", default=False,
+                        help="Constrained fine-tuning: costs from CostMaskEnv, "
+                        "GMPERunnerLag + GR_MAPPO_Lag.")
+    parser.add_argument("--lag_mode", choices=["lagrangian", "penalty"],
+                        default="lagrangian",
+                        help="lagrangian = MAPPO-Lagrangian with PID multipliers; "
+                        "penalty = standard MAPPO with fixed cost penalties in the reward.")
+    parser.add_argument("--lag_scenarios", type=str, default="",
+                        help="Comma list of layouts mixed across rollout workers "
+                        "(single, sequential, merge, mergeseq). Empty = --scenario_name.")
+    parser.add_argument("--lag_filter", type=lambda x: bool(strtobool(x)), default=True,
+                        help="Plain safety filter in the training rollout (masks moves).")
+    parser.add_argument("--lag_filter_horizon", type=int, default=3,
+                        help="Training-filter look-ahead (s).")
+    parser.add_argument("--lag_barrier", type=str, default="cbf_stage1_barrier.pt",
+                        help="Barrier weights for the training filter.")
+    parser.add_argument("--lag_near_weight", type=float, default=0.25,
+                        help="Separation cost weight of a near miss (152-304 m); "
+                        "a loss of separation (< 152 m) costs 1.")
+    parser.add_argument("--lag_budget_sep", type=float, default=0.0,
+                        help="Separation budget per aircraft per episode; <= 0 = "
+                        "measure it from the starting policy in warm-up.")
+    parser.add_argument("--lag_budget_corr", type=float, default=0.0,
+                        help="Corridor budget (seconds off-corridor per aircraft per "
+                        "episode); <= 0 = measure it in warm-up.")
+    parser.add_argument("--lag_budget_factor_sep", type=float, default=1.0,
+                        help="Automatic separation budget = this x starting cost.")
+    parser.add_argument("--lag_budget_factor_corr", type=float, default=0.7,
+                        help="Automatic corridor budget = this x starting cost.")
+    parser.add_argument("--lag_budget_floor", type=float, default=0.01,
+                        help="Smallest budget used in the normalised error.")
+    parser.add_argument("--lag_kp", type=float, default=1.0)
+    parser.add_argument("--lag_ki", type=float, default=0.1)
+    parser.add_argument("--lag_kd", type=float, default=0.5)
+    parser.add_argument("--lag_lambda_max", type=float, default=10.0)
+    parser.add_argument("--lag_cost_ema", type=float, default=0.5,
+                        help="EMA weight on the previous cost estimate (PID input).")
+    parser.add_argument("--lag_penalty_sep", type=float, default=10.0,
+                        help="penalty mode: reward -= this x separation cost.")
+    parser.add_argument("--lag_penalty_corr", type=float, default=1.0,
+                        help="penalty mode: reward -= this x corridor cost.")
+    parser.add_argument("--lag_warmup", type=int, default=5,
+                        help="First updates that train only the critics (actor fixed).")
+    parser.add_argument("--lag_kl_coef", type=float, default=0.02,
+                        help="KL anchor to the starting actor (0 = off).")
+    parser.add_argument("--lag_mask_coef", type=float, default=0.05,
+                        help="Mask-consistency weight: -log(1 - p(moves the 1 s "
+                        "filter blocks)) (0 = off).")
+    parser.add_argument("--lag_aux_rows", type=int, default=4096,
+                        help="Agent-steps sampled per PPO epoch for the KL/mask terms.")
+    parser.add_argument("--lag_pad_nodes", type=int, default=-1,
+                        help="Pad every graph to this many nodes (needed to mix "
+                        "layouts: merge graphs have no goal nodes). -1 = automatic "
+                        "(2 x num_agents when single/sequential are mixed with "
+                        "merge layouts), 0 = off.")
+    parser.add_argument("--lag_zero_fallback", type=lambda x: bool(strtobool(x)),
+                        default=True, help="Advantage 0 where the filter fell back.")
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -263,7 +353,10 @@ def main(args):
     # run experiments
     if all_args.share_policy:
         if all_args.env_name == "GraphMPE":
-            from onpolicy.runner.shared.graph_mpe_runner import GMPERunner as Runner
+            if getattr(all_args, "lag_enable", False):   # [ES] added
+                from onpolicy.runner.shared.graph_mpe_runner_lag import GMPERunnerLag as Runner
+            else:
+                from onpolicy.runner.shared.graph_mpe_runner import GMPERunner as Runner
         else:
             from onpolicy.runner.shared.mpe_runner import MPERunner as Runner
     else:
@@ -271,6 +364,8 @@ def main(args):
             raise NotImplementedError
         from onpolicy.runner.separated.mpe_runner import MPERunner as Runner
 
+    if getattr(all_args, "lag_enable", False) and getattr(all_args, "cbf_train_barrier", False):
+        sys.exit("--lag_enable and --cbf_train_barrier (Stage 3A/3B) cannot be combined")  # [ES] added
     runner = Runner(config)
 
     # ---- Stage-3B: attach the ego-frame CBF safety filter to the runner ----
