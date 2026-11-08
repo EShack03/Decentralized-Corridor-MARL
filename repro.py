@@ -344,6 +344,8 @@ def cbf_eval_cmd(py, stage, filt, scenario, n, eplen, episodes, seed, args):
         "--run_stage", stage["tag"], "--policy_slug", stage["policy"],
         "--eval_tag", stage["tag"],
     ]
+    if getattr(args, "tanh", False):
+        cmd += ["--use_ReLU"]   # [ES] added: store_false, i.e. Tanh (as trained)
     if filt != "none":
         cmd += ["--cbf_filter",
                 "--cbf_neighbour_model", CBF_FILTER_NEIGHBOUR[filt]]
@@ -602,6 +604,13 @@ def cmd_reproduce(args):
         if float(getattr(args, "sep_scale", 1.0)) != 1.0:
             _tag = f"{_tag}_sep{float(args.sep_scale):g}"
         _tag = f"{_tag}{_pol_suffix}"   # policy override always last
+        if getattr(args, "tanh", False):
+            if spec["policy_key"] != "original":
+                sys.exit("--tanh is for the original policy only (add --policy original)")
+            # [ES] added: Tanh hidden activations, as the original policy was
+            # trained (model_weights/config.yaml use_ReLU: false). Earlier runs
+            # used eval_mpe.py's default (ReLU); the suffix keeps them apart.
+            _tag = f"{_tag}_tanh"
         st = dict(tag=_tag, policy=pol["policy"], weights=pol["weights"])
         label = (f"{spec['tag']} {spec['policy_key']}/{spec['filt']} "
                  f"N={spec['n']} h={spec['horizon']} seed={s}")
@@ -628,7 +637,8 @@ def cmd_reproduce(args):
             gap_guard=getattr(args, "gap_guard", False),
             ignore_parked=getattr(args, "ignore_parked", False),
             barrier_off=getattr(args, "barrier_off", False),
-            sep_scale=getattr(args, "sep_scale", 1.0))
+            sep_scale=getattr(args, "sep_scale", 1.0),
+            tanh=getattr(args, "tanh", False))
         cmd = [str(c) for c in cbf_eval_cmd(py, st, spec["filt"], scenario,
                spec["n"], eplen, args.episodes, s, shim)]
         # full tag (incl. _nobar/_gap/_ip suffixes) + scenario, so logs from
@@ -822,6 +832,11 @@ def main():
                         "streamed to the console). Use 3-4 on a 6-core box to cut "
                         "wall-clock ~2-3x; each parallel run logs to repro_logs/. "
                         "Lower it if RAM is tight (~1.5-2.5 GB per run).")
+    r.add_argument("--tanh", action="store_true",
+                   help="evaluate with Tanh hidden activations, as the ORIGINAL policy "
+                        "was trained (model_weights/config.yaml use_ReLU: false). "
+                        "Without it eval_mpe.py uses ReLU. Tags get a _tanh suffix. "
+                        "Original policy only.")
     r.add_argument("--rerun", action="store_true",
                    help="run even if the result already exists (by default a run "
                         "whose result file is already in the repo root or "
