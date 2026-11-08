@@ -1,0 +1,29 @@
+# CBF eval result [BASE_tanh]  2026-11-08 04:47:38.971713
+# RAW BASELINE (no filter)  (computed inside the original render() loop)
+# N=10  episodes=30  seed=1  scenario=three_phase_graph_merge
+# config: episode_length=300  cbf_neighbour_model=static  cbf_horizon=3  cbf_alpha=1.0  cbf_eps=0.0  cbf_fallback=least_unsafe  cbf_adaptive=False  cbf_alpha_max=2.0  cbf_sense_range=None  cbf_heading_gate=0.6  cbf_adaptive_horizon=False  cbf_h_min=1  cbf_gap_guard=False  cbf_ignore_parked=False  cbf_sep_scale=1.0  use_ReLU=False  model_dir=model_weights  commit=1be3a94
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [BASE_tanh] - BASELINE (no filter)  (N=10, episodes=30, seed=1)
+==============================================================
+metric                                   value
+collisions (LoS)                        12.133
+  collisions cross-check                12.100
+mean success rate                      100.00%
+corridor conformance                   100.00%
+collision-free episodes                  53.3%
+min separation (km)                      0.014
+mean closest approach (km)               0.247
+max intrusion depth (km)                 0.036
+integrated intrusion (km.st)             0.821
+near-miss rate %                          0.55
+spacing violations %                      5.75
+throughput (agents/min)                  4.108
+completion time (s)                     146.10
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                  11.533
+collisions outside corridor              0.567
+max intrusion in (km)                    0.036
+max intrusion out (km)                   0.015

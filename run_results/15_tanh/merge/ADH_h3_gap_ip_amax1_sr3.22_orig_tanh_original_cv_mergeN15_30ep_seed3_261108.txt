@@ -1,0 +1,33 @@
+# CBF eval result [ADH_h3_gap_ip_amax1_sr3.22_orig_tanh]  2026-11-08 04:43:49.067414
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=15  episodes=30  seed=3  scenario=three_phase_graph_merge
+# config: episode_length=300  cbf_neighbour_model=constant_velocity  cbf_horizon=3  cbf_alpha=1.0  cbf_eps=0.0  cbf_fallback=least_unsafe  cbf_adaptive=True  cbf_alpha_max=1.0  cbf_sense_range=3.22  cbf_heading_gate=0.6  cbf_adaptive_horizon=True  cbf_h_min=1  cbf_gap_guard=True  cbf_ignore_parked=True  cbf_sep_scale=1.0  use_ReLU=False  model_dir=model_weights  commit=1be3a94
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [ADH_h3_gap_ip_amax1_sr3.22_orig_tanh] - FILTERED SYSTEM  (N=15, episodes=30, seed=3)
+  filter: neighbour=constant_velocity, alpha=1.0, horizon=3, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         0.100
+  collisions cross-check                 0.100
+mean success rate                       98.67%
+corridor conformance                    99.63%
+collision-free episodes                  93.3%
+min separation (km)                      0.091
+mean closest approach (km)               0.258
+max intrusion depth (km)                 0.003
+integrated intrusion (km.st)             0.004
+near-miss rate %                          0.19
+spacing violations %                      0.01
+throughput (agents/min)                  4.656
+completion time (s)                     193.33
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   0.033
+collisions outside corridor              0.067
+max intrusion in (km)                    0.001
+max intrusion out (km)                   0.003
+
+no-safe-action rate    : 0.18%  (of 95040 agent-steps)
+avg primitives blocked : 0.05 / 25 per step

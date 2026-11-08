@@ -1,0 +1,33 @@
+# CBF eval result [HZ_h1_ip_tanh]  2026-11-08 06:21:20.019124
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=15  episodes=30  seed=1  scenario=working_three_phase_graph
+# config: episode_length=300  cbf_neighbour_model=constant_velocity  cbf_horizon=1  cbf_alpha=1.0  cbf_eps=0.0  cbf_fallback=least_unsafe  cbf_adaptive=False  cbf_alpha_max=2.0  cbf_sense_range=None  cbf_heading_gate=0.6  cbf_adaptive_horizon=False  cbf_h_min=1  cbf_gap_guard=False  cbf_ignore_parked=True  cbf_sep_scale=1.0  use_ReLU=False  model_dir=model_weights  commit=1be3a94
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [HZ_h1_ip_tanh] - FILTERED SYSTEM  (N=15, episodes=30, seed=1)
+  filter: neighbour=constant_velocity, alpha=1.0, horizon=1, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         0.333
+  collisions cross-check                 0.333
+mean success rate                      100.00%
+corridor conformance                   100.00%
+collision-free episodes                  90.0%
+min separation (km)                      0.135
+mean closest approach (km)               0.346
+max intrusion depth (km)                 0.001
+integrated intrusion (km.st)             0.003
+near-miss rate %                          0.35
+spacing violations %                      0.10
+throughput (agents/min)                  5.300
+completion time (s)                     169.90
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   0.133
+collisions outside corridor              0.200
+max intrusion in (km)                    0.001
+max intrusion out (km)                   0.001
+
+no-safe-action rate    : 0.20%  (of 76455 agent-steps)
+avg primitives blocked : 0.06 / 25 per step
