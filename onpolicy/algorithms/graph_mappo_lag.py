@@ -70,6 +70,10 @@ def _norm_active(a, active):
 class GR_MAPPO_Lag(GR_MAPPO):
     def __init__(self, args, policy, device=torch.device("cpu")):
         super().__init__(args, policy, device=device)
+        # GR_MAPPO builds amp.GradScaler() unconditionally. It is enabled whenever
+        # the machine has CUDA, even when training runs on the CPU (--cuda off),
+        # and then scale() rejects CPU tensors. Enable it only for a CUDA device.
+        self.scaler = torch.cuda.amp.GradScaler(enabled=(torch.device(device).type == "cuda"))
         self.mode = args.lag_mode
         self.K = len(COST_NAMES)
         self.gamma, self.gae_lambda = args.gamma, args.gae_lambda
@@ -307,6 +311,11 @@ class GR_MAPPO_Lag(GR_MAPPO):
                                             buffer.masks[:-1], buffer.active_masks[:-1]))
             n_cb = max(self.num_mini_batch, int(np.ceil(flat[0].shape[0] / 16384)))
         self.update_counter = 0
+        # ppo_update calls scaler.unscale_(actor optimizer) even when the actor is
+        # not updated (warm-up); before any scaler.scale() call the scale is not
+        # yet created and unscale_ fails. Scaling a dummy tensor creates it.
+        if self.scaler.is_enabled():
+            self.scaler.scale(torch.zeros((), device=self.device))
         t0 = time.time()
         for _ in range(self.ppo_epoch):
             gen = buffer.recurrent_generator(adv, self.num_mini_batch, self.data_chunk_length)
