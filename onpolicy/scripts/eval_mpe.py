@@ -129,6 +129,10 @@ def parse_args(args, parser):
                              "the filter keeps sep_scale x 152.4 m (e.g. 1.2 -> 183 m). "
                              "The loss-of-separation metric stays at 152.4 m. "
                              "Default 1.0 (reproduces earlier runs).")
+    parser.add_argument("--cbf_horizon_out", type=int, default=0,
+                        help="look-ahead (s) used instead of --cbf_horizon while an "
+                             "aircraft is outside its corridor tube (e.g. the junction "
+                             "gap). Default 0 = off (reproduces earlier runs).")
     parser.add_argument("--cbf_ignore_parked", action="store_true",
                         help="drop aircraft that have reached their goal (agent.status "
                              "True) from the filter's neighbour set: separation test, "
@@ -275,7 +279,8 @@ def _attach_cbf_eval(runner, all_args, device):
             adaptive_horizon=all_args.cbf_adaptive_horizon,
             h_min=all_args.cbf_h_min,
             gap_guard=all_args.cbf_gap_guard,
-            ignore_parked=all_args.cbf_ignore_parked)
+            ignore_parked=all_args.cbf_ignore_parked,
+            horizon_out=all_args.cbf_horizon_out)
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon

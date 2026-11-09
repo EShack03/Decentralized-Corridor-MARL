@@ -152,6 +152,7 @@ _CONFIG_KEYS = ("episode_length", "cbf_neighbour_model", "cbf_horizon", "cbf_alp
                 "cbf_eps", "cbf_fallback", "cbf_adaptive", "cbf_alpha_max",
                 "cbf_sense_range", "cbf_heading_gate", "cbf_adaptive_horizon",
                 "cbf_h_min", "cbf_gap_guard", "cbf_ignore_parked", "cbf_sep_scale",
+                "cbf_horizon_out",
                 "use_ReLU", "model_dir")
 
 

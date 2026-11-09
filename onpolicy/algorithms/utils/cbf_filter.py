@@ -183,7 +183,7 @@ class CBFSafetyFilter:
                  adaptive_alpha=False, alpha_max=2.0, ell_thresh=0.32,
                  ell_hi=0.80, sense_range=None,
                  heading_gate=0.0, adaptive_horizon=False, h_min=1,
-                 gap_guard=False, ignore_parked=False):
+                 gap_guard=False, ignore_parked=False, horizon_out=0):
         self.barrier = barrier
         self.prim_table = prim_table
         self.n_actions = prim_table.shape[0]
@@ -250,6 +250,15 @@ class CBFSafetyFilter:
         # freezes it) and is left out of every diagnostic. Off by default so
         # earlier results reproduce exactly.
         self.ignore_parked = bool(ignore_parked)
+        # --- longer look-ahead outside the corridor (optional) -------------------
+        # When > 0 (and the runner supplies agent_in_tube), an ego that is NOT
+        # physically inside its corridor tube uses this horizon instead of
+        # `horizon`. Motivation: on the sequential bend most residual losses of
+        # separation are in the open junction gap, where aircraft turn 90 deg and
+        # the filter usually had no safe move left on the step of the loss, while
+        # a longer look-ahead everywhere costs success at the merges (in-tube).
+        # 0 = off (default), so earlier results reproduce exactly.
+        self.horizon_out = max(0, int(horizon_out))
         # --- Rung-2 geometry-adaptive look-ahead horizon (optional, proactive) --
         # When on, each agent's horizon is ramped DOWN from `self.horizon` toward
         # `h_min` on the SAME conflict-geometry severity m that drives alpha: more
@@ -498,6 +507,9 @@ class CBFSafetyFilter:
         else:
             alpha_use = self.alpha
             hz_use = self.horizon
+            if (self.horizon_out > 0 and agent_in_tube_thread is not None
+                    and not bool(agent_in_tube_thread[ego])):
+                hz_use = self.horizon_out
 
         # current barrier value for the ego (baseline h at t=0)
         no_t = torch.as_tensor(node_obs_a[None], dtype=torch.float32, device=self.device)
@@ -585,7 +597,7 @@ class CBFSafetyFilter:
         if agent_active_thread is None or bool(agent_active_thread[ego]):
             self._record_binding(
                 bar_ok, hard_ok & keep_hard,
-                "ramped" if (alpha_use > self.alpha + 1e-3 or hz_use < self.horizon) else "calm",
+                "ramped" if (alpha_use > self.alpha + 1e-3 or hz_use != self.horizon) else "calm",
                 outside_tube=(agent_in_tube_thread is not None
                               and not bool(agent_in_tube_thread[ego])))
         else:
