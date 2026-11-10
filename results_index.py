@@ -42,6 +42,12 @@ SCEN = {
     "three_phase_graph_merge_sequential_hard": "mergeseqhard",
     "three_phase_graph_split_and_merge": "combined",
     "three_phase_graph_combined_splits_and_merges_and_sequential": "combinedfull",
+    "three_phase_graph_sequential_entrygoal": "seq_entrygoal",
+    "three_phase_graph_crossing": "crossing",
+    "three_phase_graph_merge_angle90": "merge90",
+    "three_phase_graph_merge_angle180": "merge180",
+    "three_phase_graph_merge_unbalanced": "unbalanced",
+    "three_phase_graph_vertiport": "vertiport",
 }
 
 # (label at the start of a result line, column name)
