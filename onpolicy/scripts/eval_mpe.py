@@ -90,7 +90,7 @@ def parse_args(args, parser):
     parser.add_argument("--cbf_fallback", type=str, default="least_unsafe",
                         choices=["least_unsafe", "unfiltered"])
     parser.add_argument("--cbf_neighbour_model", type=str, default="static",
-                        choices=["static", "constant_velocity"])
+                        choices=["static", "constant_velocity", "route"])  # [ES] added: "route"
     parser.add_argument("--cbf_hidden", type=int, default=64)
     parser.add_argument("--cbf_layers", type=int, default=2)
     # --- Rung-1 geometry-adaptive class-K gain (proactive, alpha-only) ---------

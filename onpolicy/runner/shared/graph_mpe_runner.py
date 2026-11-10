@@ -885,11 +885,17 @@ class GMPERunner(Runner):
 								_win_tube = np.asarray(_inc, dtype=bool)[None]   # (1, na)
 						except Exception:
 							_win_tube = None
+						# [ES] added: route polylines, only for the "route" neighbour model
+						_routes = None
+						if getattr(self.cbf_eval_filter, "neighbour_model", "") == "route":
+							from onpolicy.algorithms.utils.cbf_filter import route_paths as _route_paths
+							_routes = [_route_paths(_scen, _world_cbf)]
 						_mask, _no_safe = self.cbf_eval_filter.masks_for_threads(
 							np.concatenate(node_obs)[None],
 							np.concatenate(adj)[None], _wstate,
 							agent_in_tube=_win_tube,
-							agent_active=np.array([not bool(a.status) for a in _wa], dtype=bool)[None])
+							agent_active=np.array([not bool(a.status) for a in _wa], dtype=bool)[None],
+							agent_routes=_routes)
 						_combined = available_actions * _mask[0]          # (na, n_act)
 						_empty = _combined.sum(axis=-1) == 0
 						_combined[_empty] = available_actions[_empty]     # never all-zero

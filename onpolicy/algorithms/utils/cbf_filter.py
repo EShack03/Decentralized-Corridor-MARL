@@ -198,8 +198,12 @@ class CBFSafetyFilter:
         # safest single move) or "unfiltered" (legacy: allow all).
         self.fallback = fallback
         self.num_agents = num_agents
-        assert neighbour_model in ("static", "constant_velocity")
+        # [ES] added: "route" = predict each neighbour along its own corridor route
+        # (see route_paths / _route_predict below); falls back to constant velocity
+        # for any neighbour without a usable route. Default model is unchanged.
+        assert neighbour_model in ("static", "constant_velocity", "route")
         self.neighbour_model = neighbour_model
+        self.route_stats = {"route": 0, "cv_fallback": 0}
         self.device = device if device is not None else torch.device("cpu")
 
         # --- Rung-1 geometry-adaptive class-K gain (optional, proactive) -------
@@ -287,7 +291,7 @@ class CBFSafetyFilter:
 
     @torch.no_grad()
     def masks_for_threads(self, node_obs, adj, agent_world_states, agent_in_tube=None,
-                          agent_active=None):
+                          agent_active=None, agent_routes=None):
         """
         Compute availability masks for every agent in every thread.
 
@@ -302,6 +306,9 @@ class CBFSafetyFilter:
         agent_in_tube : (n_threads, num_agents) bool or None — per-agent "physically
                    inside its corridor tube" flag for the junction gap guard
                    (ignored unless gap_guard is on).
+        agent_routes : list (per thread) of per-agent route polylines (arrays of
+                   waypoints, km) or None — used only by neighbour_model "route"
+                   (see route_paths); None means constant velocity for everyone.
         agent_active : (n_threads, num_agents) bool or None — False for aircraft
                    parked at their goal. By default used ONLY to keep them out of
                    the test-binding diagnostic (never changes a mask); with
@@ -320,11 +327,19 @@ class CBFSafetyFilter:
         no_safe = np.zeros((n_threads, num_agents), dtype=bool)
 
         for th in range(n_threads):
+            # [ES] added: route model -- predict every neighbour once per thread and step
+            # (shared by all egos), for the longest look-ahead any ego can use.
+            self._route_pred_cache = None
+            if self.neighbour_model == "route":
+                hz_max = max(int(self.horizon), int(getattr(self, "horizon_out", 0) or 0))
+                self._route_pred_cache = self._route_predict(
+                    agent_world_states[th], None if agent_routes is None else agent_routes[th], hz_max)
             for a in range(num_agents):
                 mask, none_safe = self._mask_one_agent(
                     node_obs[th, a], adj[th, a], agent_world_states[th], a, num_nodes,
                     agent_in_tube_thread=(None if agent_in_tube is None else agent_in_tube[th]),
-                    agent_active_thread=(None if agent_active is None else agent_active[th]))
+                    agent_active_thread=(None if agent_active is None else agent_active[th]),
+                    agent_routes_thread=(None if agent_routes is None else agent_routes[th]))
                 available[th, a] = mask
                 no_safe[th, a] = none_safe
         return available, no_safe
@@ -434,8 +449,49 @@ class CBFSafetyFilter:
         alpha_a = self.alpha + (self.alpha_max - self.alpha) * m
         return alpha_a, min_ang, m
 
+    # [ES] added: route-aware neighbour prediction ------------------------------
+    ROUTE_MAX_HEADING_DEG = 60.0   # use the route only if the neighbour flies roughly along it
+
+    def _route_predict(self, world_states_thread, routes, hz):
+        """Predicted neighbour positions (hz, na, 2): each neighbour advances at its
+        current speed along its route polyline (current corridor, then the next
+        ones); constant velocity if it has no route or is not flying along it
+        (heading more than ROUTE_MAX_HEADING_DEG off the route direction)."""
+        ws = np.asarray(world_states_thread, dtype=np.float64)
+        na = ws.shape[0]
+        out = np.empty((hz, na, 2), dtype=np.float32)
+        steps = self.dt * np.arange(1, hz + 1)
+        for j in range(na):
+            p, th, v = ws[j, :2], ws[j, 2], ws[j, 3]
+            vel = v * np.array([np.cos(th), np.sin(th)])
+            path = None if routes is None else routes[j]
+            used = False
+            if path is not None and len(path) >= 2:
+                pts = np.vstack([p[None], np.asarray(path, dtype=np.float64)])
+                seg = np.diff(pts, axis=0)
+                L = np.linalg.norm(seg, axis=1)
+                keep = L > 1e-6
+                pts = np.vstack([pts[:1], pts[1:][keep]]); seg = seg[keep]; L = L[keep]
+                if len(L):
+                    d0 = seg[0] / L[0]
+                    hd = np.array([np.cos(th), np.sin(th)])
+                    if float(np.dot(d0, hd)) >= np.cos(np.radians(self.ROUTE_MAX_HEADING_DEG)):
+                        cum = np.concatenate([[0.0], np.cumsum(L)])
+                        for k, dist in enumerate(v * steps):
+                            if dist >= cum[-1]:          # beyond the last waypoint: carry on straight
+                                out[k, j] = pts[-1] + (dist - cum[-1]) * seg[-1] / L[-1]
+                            else:
+                                q = int(np.searchsorted(cum, dist, side="right") - 1)
+                                out[k, j] = pts[q] + (dist - cum[q]) * seg[q] / L[q]
+                        used = True
+            if not used:
+                out[:, j] = p[None] + vel[None] * steps[:, None]
+            self.route_stats["route" if used else "cv_fallback"] += 1
+        return out
+
     def _mask_one_agent(self, node_obs_a, adj_a, world_states_thread, ego, num_nodes,
-                        agent_in_tube_thread=None, agent_active_thread=None):
+                        agent_in_tube_thread=None, agent_active_thread=None,
+                        agent_routes_thread=None):
         """
         node_obs_a : (num_nodes, node_feat)  ego agent `ego`'s node features
         adj_a      : (num_nodes, num_nodes)  the (shared) distance matrix
@@ -535,6 +591,19 @@ class CBFSafetyFilter:
         dth = self.prim_table[:, 0].astype(np.float32)   # (K,)
         dv = self.prim_table[:, 1].astype(np.float32)    # (K,)
 
+        # [ES] added: route model -- every neighbour's predicted position at each
+        # look-ahead step along its own corridor route (constant velocity where no
+        # usable route). Not used by the other models.
+        nbr_route_pred = None
+        if self.neighbour_model == "route":
+            cache = getattr(self, "_route_pred_cache", None)
+            if cache is not None and cache.shape[0] >= hz_use:
+                nbr_route_pred = cache[:hz_use]                               # (hz, na, 2)
+            else:
+                nbr_route_pred = self._route_predict(world_states_thread, agent_routes_thread,
+                                                     hz_use)
+
+
         for t in range(hz_use):
             # advance every primitive's ego one step (vectorised kinematics)
             pos, theta, speed = self._step_batch(pos, theta, speed, dth, dv)
@@ -544,6 +613,8 @@ class CBFSafetyFilter:
             # (straight-line, no turning — the standard constant-velocity model).
             if self.neighbour_model == "constant_velocity":
                 nbr_pos_t = other_agent_pos + nbr_vel * (self.dt * (t + 1))  # (na,2)
+            elif nbr_route_pred is not None:
+                nbr_pos_t = nbr_route_pred[t]                                 # (na,2)
             else:
                 nbr_pos_t = other_agent_pos
 
@@ -782,3 +853,58 @@ class EgoCBFFilter:
                 avail[no_safe] = 1.0
 
         return avail, no_safe
+
+
+# [ES] added: route polylines for the "route" neighbour model ----------------------
+def _remaining_tubes(scen, world, i):
+    """Corridor indices aircraft i still has to fly, current first."""
+    tp = world.tube_params
+    if isinstance(tp, dict):
+        return [0]
+    n = len(tp)
+    if hasattr(scen, "ROUTES") and hasattr(scen, "_route") and hasattr(scen, "_seg"):
+        route = scen.ROUTES[int(scen._route[i])]
+        return list(route[int(scen._seg[i]):])
+    cur = int(scen.current_tube[i]) if getattr(scen, "current_tube", None) is not None else 0
+    if n == 2:                       # sequential: 0 -> 1
+        return list(range(cur, n))
+    if cur in (0, 1):                # merge family: arm -> stem (-> turn)
+        return [cur] + list(range(2, n))
+    return list(range(cur, n))
+
+
+def route_paths(scen, world, max_lateral=1.0):
+    """Per-aircraft route polyline (waypoints, km) for the "route" neighbour model:
+    keep the aircraft's lateral offset (clamped to the corridor) through its current
+    corridor to the exit, then follow the centre line of each remaining corridor.
+    None for an aircraft well off its corridor (lateral offset beyond the half-width
+    + max_lateral, or already past the exit of its last corridor)."""
+    tp = world.tube_params
+    tubes = [tp] if isinstance(tp, dict) else list(tp)
+    out = []
+    for i, a in enumerate(world.agents):
+        try:
+            rem = _remaining_tubes(scen, world, i)
+            t0 = tubes[rem[0]]
+            ent, ex = np.asarray(t0["entrance"], float), np.asarray(t0["exit"], float)
+            e = (ex - ent) / np.linalg.norm(ex - ent)
+            n = np.array([-e[1], e[0]])
+            hw = float(t0.get("half_width", float(t0["width"]) / 2))
+            r = np.asarray(a.state.p_pos, float) - ent
+            s_, y_ = float(r @ e), float(r @ n)
+            Lt = float(np.linalg.norm(ex - ent))
+            if abs(y_) > hw + max_lateral or (len(rem) == 1 and s_ > Lt):
+                out.append(None)
+                continue
+            yc = float(np.clip(y_, -0.8 * hw, 0.8 * hw))
+            wp = []
+            if s_ < 0:
+                wp.append(ent + yc * n)
+            wp.append(ex + yc * n)
+            for k in rem[1:]:
+                wp.append(np.asarray(tubes[k]["entrance"], float))
+                wp.append(np.asarray(tubes[k]["exit"], float))
+            out.append(np.array(wp))
+        except Exception:
+            out.append(None)
+    return out

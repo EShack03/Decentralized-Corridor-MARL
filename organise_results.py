@@ -47,7 +47,7 @@ from pathlib import Path
 DEST = Path("run_results")
 
 NAME = re.compile(
-    r"^(?P<tag>.+?)_(?P<pol>original|shaped-train|shielded-train)_(?P<filt>none|static|cv)_"
+    r"^(?P<tag>.+?)_(?P<pol>original|shaped-train|shielded-train)_(?P<filt>none|static|cv|route)_"
     r"(?P<scen>.+?)N(?P<n>\d+)_(?P<ep>\d+)ep_(?P<seed>seed\d+|\d+seed)_(?P<date>\d{6})"
     r"(?P<perep>_perep)?\.(?P<ext>txt|csv)$")
 

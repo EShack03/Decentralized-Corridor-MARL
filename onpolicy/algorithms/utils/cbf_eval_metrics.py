@@ -139,8 +139,9 @@ def result_filename(all_args, filtered):
     eps = all_args.render_episodes
     seeds = list(getattr(all_args, "_seeds", [int(all_args.seed)]))
     seedslug = f"{len(seeds)}seed" if len(seeds) > 1 else f"seed{int(all_args.seed)}"
-    filt = "cv" if filtered and getattr(all_args, "cbf_neighbour_model", "static") == "constant_velocity" \
-        else ("static" if filtered else "none")
+    _nm = getattr(all_args, "cbf_neighbour_model", "static")
+    filt = ("none" if not filtered else
+            {"constant_velocity": "cv", "route": "route"}.get(_nm, "static"))  # [ES] added: "route"
     date = datetime.datetime.now().strftime("%y%m%d")
     return f"{stage}_{policy}_{filt}_{scen}N{N}_{eps}ep_{seedslug}_{date}.txt"
 
