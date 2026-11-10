@@ -1,0 +1,33 @@
+# CBF eval result [HO8_ip_tanh]  2026-11-10 12:02:14.527702
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=15  episodes=30  seed=3  scenario=three_phase_graph_merge
+# config: episode_length=300  cbf_neighbour_model=static  cbf_horizon=3  cbf_alpha=1.0  cbf_eps=0.0  cbf_fallback=least_unsafe  cbf_adaptive=False  cbf_alpha_max=2.0  cbf_sense_range=None  cbf_heading_gate=0.6  cbf_adaptive_horizon=False  cbf_h_min=1  cbf_gap_guard=False  cbf_ignore_parked=True  cbf_sep_scale=1.0  cbf_horizon_out=8  use_ReLU=False  model_dir=model_weights  commit=a12a407
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [HO8_ip_tanh] - FILTERED SYSTEM  (N=15, episodes=30, seed=3)
+  filter: neighbour=static, alpha=1.0, horizon=3, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         3.400
+  collisions cross-check                 3.400
+mean success rate                       88.44%
+corridor conformance                    96.43%
+collision-free episodes                  43.3%
+min separation (km)                      0.013
+mean closest approach (km)               0.176
+max intrusion depth (km)                 0.030
+integrated intrusion (km.st)             0.107
+near-miss rate %                          0.25
+spacing violations %                      0.57
+throughput (agents/min)                  4.590
+completion time (s)                     197.33
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   2.067
+collisions outside corridor              1.333
+max intrusion in (km)                    0.020
+max intrusion out (km)                   0.018
+
+no-safe-action rate    : 0.55%  (of 125205 agent-steps)
+avg primitives blocked : 0.28 / 25 per step

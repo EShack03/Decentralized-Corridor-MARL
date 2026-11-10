@@ -1,0 +1,33 @@
+# CBF eval result [HO5_ip_tanh]  2026-11-09 22:22:17.495775
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=15  episodes=30  seed=2  scenario=three_phase_graph_merge_sequential
+# config: episode_length=300  cbf_neighbour_model=static  cbf_horizon=3  cbf_alpha=1.0  cbf_eps=0.0  cbf_fallback=least_unsafe  cbf_adaptive=False  cbf_alpha_max=2.0  cbf_sense_range=None  cbf_heading_gate=0.6  cbf_adaptive_horizon=False  cbf_h_min=1  cbf_gap_guard=False  cbf_ignore_parked=True  cbf_sep_scale=1.0  cbf_horizon_out=5  use_ReLU=False  model_dir=model_weights  commit=a12a407
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [HO5_ip_tanh] - FILTERED SYSTEM  (N=15, episodes=30, seed=2)
+  filter: neighbour=static, alpha=1.0, horizon=3, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         2.400
+  collisions cross-check                 2.400
+mean success rate                       98.67%
+corridor conformance                    99.63%
+collision-free episodes                  60.0%
+min separation (km)                      0.095
+mean closest approach (km)               0.208
+max intrusion depth (km)                 0.012
+integrated intrusion (km.st)             0.037
+near-miss rate %                          0.30
+spacing violations %                      0.29
+throughput (agents/min)                  3.827
+completion time (s)                     235.60
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   1.600
+collisions outside corridor              0.800
+max intrusion in (km)                    0.008
+max intrusion out (km)                   0.007
+
+no-safe-action rate    : 0.70%  (of 110820 agent-steps)
+avg primitives blocked : 0.39 / 25 per step
