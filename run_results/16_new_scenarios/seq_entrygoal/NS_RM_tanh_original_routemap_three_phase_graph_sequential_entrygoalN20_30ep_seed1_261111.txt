@@ -1,0 +1,33 @@
+# CBF eval result [NS_RM_tanh]  2026-11-11 06:46:35.949920
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=20  episodes=30  seed=1  scenario=three_phase_graph_sequential_entrygoal
+# config: episode_length=300  cbf_neighbour_model=route_map  cbf_horizon=3  cbf_alpha=1.0  cbf_eps=0.0  cbf_fallback=least_unsafe  cbf_adaptive=False  cbf_alpha_max=2.0  cbf_sense_range=None  cbf_heading_gate=0.6  cbf_adaptive_horizon=False  cbf_h_min=1  cbf_gap_guard=False  cbf_ignore_parked=True  cbf_sep_scale=1.2  cbf_horizon_out=0  cbf_no_barrier=True  use_ReLU=False  model_dir=model_weights  commit=6992c5e
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [NS_RM_tanh] - FILTERED SYSTEM  (N=20, episodes=30, seed=1)
+  filter: neighbour=route_map, alpha=1.0, horizon=3, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         1.467
+  collisions cross-check                 1.433
+mean success rate                       77.83%
+corridor conformance                    83.05%
+collision-free episodes                  53.3%
+min separation (km)                      0.037
+mean closest approach (km)               0.135
+max intrusion depth (km)                 0.024
+integrated intrusion (km.st)             0.041
+near-miss rate %                          1.76
+spacing violations %                      0.08
+throughput (agents/min)                  6.171
+completion time (s)                     199.60
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   0.767
+collisions outside corridor              0.667
+max intrusion in (km)                    0.017
+max intrusion out (km)                   0.012
+
+no-safe-action rate    : 1.73%  (of 180000 agent-steps)
+avg primitives blocked : 0.66 / 25 per step
