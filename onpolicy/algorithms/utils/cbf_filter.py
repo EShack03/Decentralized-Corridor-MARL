@@ -201,7 +201,7 @@ class CBFSafetyFilter:
         # [ES] added: "route" = predict each neighbour along its own corridor route
         # (see route_paths / _route_predict below); falls back to constant velocity
         # for any neighbour without a usable route. Default model is unchanged.
-        assert neighbour_model in ("static", "constant_velocity", "route")
+        assert neighbour_model in ("static", "constant_velocity", "route", "route_map")
         self.neighbour_model = neighbour_model
         self.route_stats = {"route": 0, "cv_fallback": 0}
         self.device = device if device is not None else torch.device("cpu")
@@ -330,7 +330,7 @@ class CBFSafetyFilter:
             # [ES] added: route model -- predict every neighbour once per thread and step
             # (shared by all egos), for the longest look-ahead any ego can use.
             self._route_pred_cache = None
-            if self.neighbour_model == "route":
+            if self.neighbour_model in ("route", "route_map"):
                 hz_max = max(int(self.horizon), int(getattr(self, "horizon_out", 0) or 0))
                 self._route_pred_cache = self._route_predict(
                     agent_world_states[th], None if agent_routes is None else agent_routes[th], hz_max)
@@ -599,7 +599,7 @@ class CBFSafetyFilter:
         # look-ahead step along its own corridor route (constant velocity where no
         # usable route). Not used by the other models.
         nbr_route_pred = None
-        if self.neighbour_model == "route":
+        if self.neighbour_model in ("route", "route_map"):
             cache = getattr(self, "_route_pred_cache", None)
             if cache is not None and cache.shape[0] >= hz_use:
                 nbr_route_pred = cache[:hz_use]                               # (hz, na, 2)
@@ -882,7 +882,7 @@ def _remaining_tubes(scen, world, i):
     return list(range(cur, n))
 
 
-def route_paths(scen, world, max_lateral=1.0):
+def route_paths(scen, world, max_lateral=1.0, remaining=None):
     """Per-aircraft route polyline (waypoints, km) for the "route" neighbour model:
     keep the aircraft's lateral offset (clamped to the corridor) through its current
     corridor to the exit, then follow the centre line of each remaining corridor.
@@ -893,7 +893,10 @@ def route_paths(scen, world, max_lateral=1.0):
     out = []
     for i, a in enumerate(world.agents):
         try:
-            rem = _remaining_tubes(scen, world, i)
+            rem = (remaining or _remaining_tubes)(scen, world, i)
+            if not rem:
+                out.append(None)
+                continue
             t0 = tubes[rem[0]]
             ent, ex = np.asarray(t0["entrance"], float), np.asarray(t0["exit"], float)
             e = (ex - ent) / np.linalg.norm(ex - ent)
@@ -917,3 +920,80 @@ def route_paths(scen, world, max_lateral=1.0):
         except Exception:
             out.append(None)
     return out
+
+
+# [ES] added: "route_map" -- the same route prediction, but each neighbour's route is
+# inferred only from what the ego could sense (the neighbour's position and heading)
+# plus the published corridor map (corridor geometry and which corridor follows
+# which). Nothing is read from the simulator's record of the neighbour's corridor.
+def corridor_successors(scen, world):
+    """Published map: corridor index -> the corridor that follows it (None = last).
+    Built from the layout definition only (static), never from aircraft state."""
+    tp = world.tube_params
+    if isinstance(tp, dict):
+        return {0: None}
+    n = len(tp)
+    if hasattr(scen, "ROUTES"):
+        succ = {k: None for k in range(n)}
+        for route in scen.ROUTES:
+            for a, b in zip(route[:-1], route[1:]):
+                succ[a] = b
+        return succ
+    if n == 2:                          # sequential: 0 -> 1
+        return {0: 1, 1: None}
+    succ = {0: 2, 1: 2}                  # merge family: arms -> stem (-> turn)
+    for k in range(2, n):
+        succ[k] = k + 1 if k + 1 < n else None
+    return succ
+
+
+def _infer_remaining_tubes(scen, world, i, gap_reach=1.2, approach_lateral=1.0, approach_cos=0.5):
+    """Corridors aircraft i still has to fly, inferred from its sensed position and
+    heading and the published map only:
+      1. inside a corridor (the one best aligned with its heading if several overlap,
+         e.g. at a crossing) -> that corridor;
+      2. else just past a corridor's exit (within gap_reach km, roughly in line) and
+         that corridor has a successor -> the successor (it is in the junction gap);
+      3. else behind a corridor's entrance, within approach_lateral km of its
+         centre line extended backwards, and heading towards the entrance (within
+         60 deg) -> that corridor, the nearest such entrance (queue / approach);
+      4. else unknown -> [] (constant-velocity fallback)."""
+    tp = world.tube_params
+    tubes = [tp] if isinstance(tp, dict) else list(tp)
+    succ = corridor_successors(scen, world)
+    a = world.agents[i]
+    p = np.asarray(a.state.p_pos, float)
+    th = float(getattr(a.state, "theta", 0.0))
+    hd = np.array([np.cos(th), np.sin(th)])
+    inside, past, ahead = [], [], []
+    for k, t in enumerate(tubes):
+        ent, ex = np.asarray(t["entrance"], float), np.asarray(t["exit"], float)
+        L = float(np.linalg.norm(ex - ent)); e = (ex - ent) / L; n = np.array([-e[1], e[0]])
+        hw = float(t.get("half_width", float(t["width"]) / 2))
+        r = p - ent; s_, y_ = float(r @ e), float(r @ n)
+        if 0.0 <= s_ <= L and abs(y_) <= hw:
+            inside.append((-float(hd @ e), k))
+        elif L < s_ <= L + gap_reach and abs(y_) <= hw + gap_reach and succ.get(k) is not None:
+            past.append((s_ - L, k))
+        elif s_ < 0 and abs(y_) <= hw + approach_lateral:
+            to_ent = ent - p
+            d = float(np.linalg.norm(to_ent))
+            if d < 1e-9 or float(hd @ to_ent) / d >= approach_cos:
+                ahead.append((d, k))
+    if inside:
+        k = min(inside)[1]
+    elif past:
+        k = succ[min(past)[1]]
+    elif ahead:
+        k = min(ahead)[1]
+    else:
+        return []
+    rem, seen = [k], {k}
+    while succ.get(rem[-1]) is not None and succ[rem[-1]] not in seen:
+        rem.append(succ[rem[-1]]); seen.add(rem[-1])
+    return rem
+
+
+def route_paths_map(scen, world, max_lateral=1.0):
+    """route_paths with each aircraft's route inferred from sensing + the map."""
+    return route_paths(scen, world, max_lateral=max_lateral, remaining=_infer_remaining_tubes)

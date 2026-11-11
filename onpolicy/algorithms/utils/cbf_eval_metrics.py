@@ -141,7 +141,7 @@ def result_filename(all_args, filtered):
     seedslug = f"{len(seeds)}seed" if len(seeds) > 1 else f"seed{int(all_args.seed)}"
     _nm = getattr(all_args, "cbf_neighbour_model", "static")
     filt = ("none" if not filtered else
-            {"constant_velocity": "cv", "route": "route"}.get(_nm, "static"))  # [ES] added: "route"
+            {"constant_velocity": "cv", "route": "route", "route_map": "routemap"}.get(_nm, "static"))  # [ES] added: "route"
     date = datetime.datetime.now().strftime("%y%m%d")
     return f"{stage}_{policy}_{filt}_{scen}N{N}_{eps}ep_{seedslug}_{date}.txt"
 

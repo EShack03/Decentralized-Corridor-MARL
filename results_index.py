@@ -32,7 +32,7 @@ DEST = Path("run_results")
 INDEX = DEST / "index.tsv"
 
 NAME = re.compile(
-    r"^(?P<tag>.+?)_(?P<policy>original|shaped-train|shielded-train)_(?P<filt>none|static|cv|route)_"
+    r"^(?P<tag>.+?)_(?P<policy>original|shaped-train|shielded-train)_(?P<filt>none|static|cv|routemap|route)_"
     r"(?P<scen>.+?)N(?P<n>\d+)_(?P<episodes>\d+)ep_(?P<seed>seed\d+|\d+seed)_(?P<date>\d{6})\.txt$")
 
 # short scenario names used in the file names -> the names repro.py uses

@@ -887,9 +887,13 @@ class GMPERunner(Runner):
 							_win_tube = None
 						# [ES] added: route polylines, only for the "route" neighbour model
 						_routes = None
-						if getattr(self.cbf_eval_filter, "neighbour_model", "") == "route":
+						_nm = getattr(self.cbf_eval_filter, "neighbour_model", "")
+						if _nm == "route":
 							from onpolicy.algorithms.utils.cbf_filter import route_paths as _route_paths
 							_routes = [_route_paths(_scen, _world_cbf)]
+						elif _nm == "route_map":
+							from onpolicy.algorithms.utils.cbf_filter import route_paths_map as _route_paths_map
+							_routes = [_route_paths_map(_scen, _world_cbf)]
 						_mask, _no_safe = self.cbf_eval_filter.masks_for_threads(
 							np.concatenate(node_obs)[None],
 							np.concatenate(adj)[None], _wstate,
