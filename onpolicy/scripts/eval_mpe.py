@@ -84,6 +84,9 @@ def parse_args(args, parser):
     parser.add_argument("--cbf_filter", action="store_true",
                         help="apply the CBF safety filter in render() (needs --cbf_barrier)")
     parser.add_argument("--cbf_barrier", type=str, default="cbf_stage1_barrier.pt")
+    parser.add_argument("--cbf_no_barrier", action="store_true",
+                        help="[ES] added: filter without the learned barrier (hard "
+                             "separation test only); the barrier is not loaded.")
     parser.add_argument("--cbf_alpha", type=float, default=1.0)
     parser.add_argument("--cbf_eps", type=float, default=0.0)
     parser.add_argument("--cbf_horizon", type=int, default=3)
@@ -257,12 +260,15 @@ def _attach_cbf_eval(runner, all_args, device):
         prim_table = build_primitive_table(_CBF_N_ACCEL, _CBF_N_ANGRATE,
                                            _CBF_ACCEL_MIN, _CBF_ACCEL_MAX,
                                            _CBF_ANG_RATE_MAX)
-        barrier = CBFGNN(node_obs_dim=7, edge_dim=1,
-                         hidden_size=all_args.cbf_hidden,
-                         num_layers=all_args.cbf_layers,
-                         max_edge_dist=_CBF_MAX_EDGE).to(bdev)
-        barrier.load_state_dict(torch.load(all_args.cbf_barrier, map_location=bdev))
-        barrier.eval()
+        if getattr(all_args, "cbf_no_barrier", False):
+            barrier = None                          # [ES] added: no learned barrier
+        else:
+            barrier = CBFGNN(node_obs_dim=7, edge_dim=1,
+                             hidden_size=all_args.cbf_hidden,
+                             num_layers=all_args.cbf_layers,
+                             max_edge_dist=_CBF_MAX_EDGE).to(bdev)
+            barrier.load_state_dict(torch.load(all_args.cbf_barrier, map_location=bdev))
+            barrier.eval()
         runner.cbf_eval_filter = CBFSafetyFilter(
             barrier=barrier, prim_table=prim_table,
             sep=_CBF_SEP * all_args.cbf_sep_scale, dt=_CBF_DT,
@@ -291,12 +297,12 @@ def _attach_cbf_eval(runner, all_args, device):
                   f"sense={all_args.cbf_sense_range}, heading_gate={all_args.cbf_heading_gate}, "
                   f"gap_guard={all_args.cbf_gap_guard}], "
                   f"{_hz_desc}, "
-                  f"fallback={all_args.cbf_fallback}); barrier={all_args.cbf_barrier}; "
+                  f"fallback={all_args.cbf_fallback}); barrier={'none' if all_args.cbf_no_barrier else all_args.cbf_barrier}; "
                   f"barrier_device={bdev}")
         else:
             print(f"[cbf] safety filter attached (neighbour={all_args.cbf_neighbour_model}, "
                   f"alpha={all_args.cbf_alpha}, horizon={all_args.cbf_horizon}, "
-                  f"fallback={all_args.cbf_fallback}); barrier={all_args.cbf_barrier}; "
+                  f"fallback={all_args.cbf_fallback}); barrier={'none' if all_args.cbf_no_barrier else all_args.cbf_barrier}; "
                   f"barrier_device={bdev}")
     else:
         print("[cbf] metrics-only (no filter): recording severity for the raw policy")

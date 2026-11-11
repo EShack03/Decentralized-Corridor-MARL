@@ -567,10 +567,14 @@ class CBFSafetyFilter:
                     and not bool(agent_in_tube_thread[ego])):
                 hz_use = self.horizon_out
 
+        # [ES] added: barrier=None -> no learned barrier at all (hard separation
+        # test only); the barrier network is never evaluated.
+        use_barrier = self.barrier is not None
         # current barrier value for the ego (baseline h at t=0)
-        no_t = torch.as_tensor(node_obs_a[None], dtype=torch.float32, device=self.device)
-        adj_t = torch.as_tensor(adj_a[None], dtype=torch.float32, device=self.device)
-        h_prev = np.full(K, float(self.barrier(no_t, adj_t)[0, ego]), dtype=np.float32)
+        if use_barrier:
+            no_t = torch.as_tensor(node_obs_a[None], dtype=torch.float32, device=self.device)
+            adj_t = torch.as_tensor(adj_a[None], dtype=torch.float32, device=self.device)
+            h_prev = np.full(K, float(self.barrier(no_t, adj_t)[0, ego]), dtype=np.float32)
 
         # Per-primitive rolled ego state, held primitive constant across horizon.
         pos = np.repeat(ego_state[None, :2].astype(np.float32), K, axis=0)  # (K,2)
@@ -624,15 +628,16 @@ class CBFSafetyFilter:
             dists = np.linalg.norm(diff, axis=2).astype(np.float32)         # (K, na)
 
             # write ego row/col of adj for the barrier eval
-            cand_adj = base_adj.copy()
-            cand_adj[:, ego, :na] = dists
-            cand_adj[:, :na, ego] = dists
-            cand_adj[np.arange(K), ego, ego] = 0.0
-            if parked is not None and parked_idx.size:
-                # keep parked aircraft disconnected (adj 0 = no edge), exactly as
-                # in the env's own graph used for h at t=0.
-                cand_adj[:, ego, parked_idx] = 0.0
-                cand_adj[:, parked_idx, ego] = 0.0
+            if use_barrier:
+                cand_adj = base_adj.copy()
+                cand_adj[:, ego, :na] = dists
+                cand_adj[:, :na, ego] = dists
+                cand_adj[np.arange(K), ego, ego] = 0.0
+                if parked is not None and parked_idx.size:
+                    # keep parked aircraft disconnected (adj 0 = no edge), exactly as
+                    # in the env's own graph used for h at t=0.
+                    cand_adj[:, ego, parked_idx] = 0.0
+                    cand_adj[:, parked_idx, ego] = 0.0
 
             # nearest OTHER agent this step (ignore self column)
             d_others = dists.copy()
@@ -643,19 +648,23 @@ class CBFSafetyFilter:
             min_dist_overall = np.minimum(min_dist_overall, step_min)
 
             # barrier at this step
-            cand_no = torch.as_tensor(cand_node_obs, dtype=torch.float32, device=self.device)
-            cand_ad = torch.as_tensor(cand_adj, dtype=torch.float32, device=self.device)
-            h_t = self.barrier(cand_no, cand_ad)[:, ego].cpu().numpy()     # (K,)
+            if use_barrier:
+                cand_no = torch.as_tensor(cand_node_obs, dtype=torch.float32, device=self.device)
+                cand_ad = torch.as_tensor(cand_adj, dtype=torch.float32, device=self.device)
+                h_t = self.barrier(cand_no, cand_ad)[:, ego].cpu().numpy()     # (K,)
 
-            # step-to-step barrier condition: h_t - h_prev + alpha*h_prev >= -eps
-            # (alpha_use == self.alpha unless the geometry-adaptive ramp is on)
-            ok_barrier = (h_t - h_prev + alpha_use * h_prev) >= -self.eps
+                # step-to-step barrier condition: h_t - h_prev + alpha*h_prev >= -eps
+                # (alpha_use == self.alpha unless the geometry-adaptive ramp is on)
+                ok_barrier = (h_t - h_prev + alpha_use * h_prev) >= -self.eps
+            else:
+                ok_barrier = np.ones(K, dtype=bool)
             ok_hard = step_min >= self.sep
             keep &= ok_barrier & ok_hard
             bar_ok &= ok_barrier
             hard_ok &= ok_hard
 
-            h_prev = h_t
+            if use_barrier:
+                h_prev = h_t
             # (once a primitive fails, it stays failed; we keep rolling the rest
             #  together for vectorisation simplicity — cheap at K=25.)
 
