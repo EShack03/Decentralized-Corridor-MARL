@@ -19,6 +19,7 @@ files them here (re-run it after each batch). Folder numbers follow the Run Resu
 | `12_ablations/<scenario>/` | alpha cap, sensing range, separation buffer (`_amax`, `_sr`, `_sep`) | 2.10-2.11 |
 | `14_policy_swap/<scenario>/` | a policy run under another configuration's filter (`_orig`), incl. the **final filter F0** with the original policy | 2.10-2.12 |
 | `15_tanh/<scenario>/` | original policy evaluated with Tanh hidden activations, as it was trained (`_tanh`); earlier runs used ReLU | 2.15 onwards |
+| `16_new_scenarios/<scenario>/` | new layouts (`NS_` tags, Tanh): sequential with the target at corridor 2's entrance, crossing, merge at 90/180 deg, unbalanced bunched merge, vertiport turnaround | 2.16 |
 | `_superseded/` | config-bug era, early smoke runs, superseded sweeps | provenance doc |
 | `manifests/` | run lists written by `repro.py reproduce` (local only, not in git) | - |
 
