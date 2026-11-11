@@ -183,7 +183,8 @@ class CBFSafetyFilter:
                  adaptive_alpha=False, alpha_max=2.0, ell_thresh=0.32,
                  ell_hi=0.80, sense_range=None,
                  heading_gate=0.0, adaptive_horizon=False, h_min=1,
-                 gap_guard=False, ignore_parked=False, horizon_out=0):
+                 gap_guard=False, ignore_parked=False, horizon_out=0,
+                 route_turn_limit=0.0, route_lookahead=0.2):
         self.barrier = barrier
         self.prim_table = prim_table
         self.n_actions = prim_table.shape[0]
@@ -204,6 +205,14 @@ class CBFSafetyFilter:
         assert neighbour_model in ("static", "constant_velocity", "route", "route_map")
         self.neighbour_model = neighbour_model
         self.route_stats = {"route": 0, "cv_fallback": 0}
+        # [ES] added: turn-rate-limited route following (rad/s; 0 = off). Off: the
+        # predicted neighbour moves along its route polyline, so it takes the
+        # route's direction at once (at the start and at every corner). On: it
+        # steers towards the point route_lookahead (km) ahead of it on the route
+        # (pure pursuit) and can turn no faster than route_turn_limit, so the
+        # predicted path arcs through corners as a real aircraft must.
+        self.route_turn_limit = float(route_turn_limit or 0.0)
+        self.route_lookahead = float(route_lookahead)
         self.device = device if device is not None else torch.device("cpu")
 
         # --- Rung-1 geometry-adaptive class-K gain (optional, proactive) -------
@@ -477,6 +486,12 @@ class CBFSafetyFilter:
                     hd = np.array([np.cos(th), np.sin(th)])
                     if float(np.dot(d0, hd)) >= np.cos(np.radians(self.ROUTE_MAX_HEADING_DEG)):
                         cum = np.concatenate([[0.0], np.cumsum(L)])
+                        if self.route_turn_limit > 0:
+                            out[:, j] = _follow_turn_limited(p, th, v, pts, seg, L, cum, self.dt, hz,
+                                                             self.route_turn_limit, self.route_lookahead)
+                            used = True
+                            self.route_stats["route"] += 1
+                            continue
                         for k, dist in enumerate(v * steps):
                             if dist >= cum[-1]:          # beyond the last waypoint: carry on straight
                                 out[k, j] = pts[-1] + (dist - cum[-1]) * seg[-1] / L[-1]
@@ -865,6 +880,33 @@ class EgoCBFFilter:
 
 
 # [ES] added: route polylines for the "route" neighbour model ----------------------
+def _follow_turn_limited(p, th, v, pts, seg, L, cum, dt, hz, wmax, lookahead, substeps=10):
+    """[ES] added: predicted positions (hz, 2) of an aircraft at p (heading th, speed v)
+    that follows the route polyline pts by pure pursuit: each substep it steers towards
+    the route point `lookahead` km beyond its own progress along the route, with its
+    turn rate capped at wmax (rad/s); speed is held. Beyond the last waypoint the
+    target carries on along the last segment."""
+    def at(s):
+        if s >= cum[-1]:
+            return pts[-1] + (s - cum[-1]) * seg[-1] / L[-1]
+        q = int(np.searchsorted(cum, s, side="right") - 1)
+        return pts[q] + (s - cum[q]) * seg[q] / L[q]
+    out = np.empty((hz, 2), dtype=np.float64)
+    q = np.array(p, dtype=np.float64)
+    th = float(th)
+    h = dt / substeps
+    s = 0.0
+    for k in range(hz):
+        for _ in range(substeps):
+            s += v * h
+            tgt = at(s + lookahead)
+            err = (np.arctan2(tgt[1] - q[1], tgt[0] - q[0]) - th + np.pi) % (2 * np.pi) - np.pi
+            th += float(np.clip(err, -wmax * h, wmax * h))
+            q = q + v * h * np.array([np.cos(th), np.sin(th)])
+        out[k] = q
+    return out
+
+
 def _remaining_tubes(scen, world, i):
     """Corridor indices aircraft i still has to fly, current first."""
     tp = world.tube_params

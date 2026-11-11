@@ -132,6 +132,13 @@ def parse_args(args, parser):
                              "the filter keeps sep_scale x 152.4 m (e.g. 1.2 -> 183 m). "
                              "The loss-of-separation metric stays at 152.4 m. "
                              "Default 1.0 (reproduces earlier runs).")
+    # [ES] added: turn-rate-limited route prediction (route / route_map models only)
+    parser.add_argument("--cbf_route_turn_limit", type=float, default=0.0,
+                        help="route/route_map neighbour models: cap the predicted neighbour's "
+                             "turn rate (rad/s; the air-taxi limit is 0.075) so its path arcs "
+                             "through corners; 0 = off (instant turn onto the route)")
+    parser.add_argument("--cbf_route_lookahead", type=float, default=0.2,
+                        help="pure-pursuit look-ahead along the route (km) for --cbf_route_turn_limit")
     parser.add_argument("--cbf_horizon_out", type=int, default=0,
                         help="look-ahead (s) used instead of --cbf_horizon while an "
                              "aircraft is outside its corridor tube (e.g. the junction "
@@ -286,7 +293,9 @@ def _attach_cbf_eval(runner, all_args, device):
             h_min=all_args.cbf_h_min,
             gap_guard=all_args.cbf_gap_guard,
             ignore_parked=all_args.cbf_ignore_parked,
-            horizon_out=all_args.cbf_horizon_out)
+            horizon_out=all_args.cbf_horizon_out,
+            route_turn_limit=all_args.cbf_route_turn_limit,
+            route_lookahead=all_args.cbf_route_lookahead)
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon
