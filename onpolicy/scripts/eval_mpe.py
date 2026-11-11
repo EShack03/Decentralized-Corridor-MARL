@@ -139,6 +139,13 @@ def parse_args(args, parser):
                              "through corners; 0 = off (instant turn onto the route)")
     parser.add_argument("--cbf_route_lookahead", type=float, default=0.2,
                         help="pure-pursuit look-ahead along the route (km) for --cbf_route_turn_limit")
+    # [ES] added: variants of the route / route_map neighbour prediction
+    parser.add_argument("--cbf_route_variant", type=str, default="orig",
+                        choices=["orig", "fix", "hybrid", "goal"],
+                        help="route/route_map models: orig = as first built (constant velocity in "
+                             "the final corridor); fix = follow the route in the final corridor too; "
+                             "hybrid = fix inside the current corridor, steer at the neighbour's goal "
+                             "(turn-limited) outside it; goal = always steer at the goal")
     parser.add_argument("--cbf_horizon_out", type=int, default=0,
                         help="look-ahead (s) used instead of --cbf_horizon while an "
                              "aircraft is outside its corridor tube (e.g. the junction "
@@ -295,7 +302,8 @@ def _attach_cbf_eval(runner, all_args, device):
             ignore_parked=all_args.cbf_ignore_parked,
             horizon_out=all_args.cbf_horizon_out,
             route_turn_limit=all_args.cbf_route_turn_limit,
-            route_lookahead=all_args.cbf_route_lookahead)
+            route_lookahead=all_args.cbf_route_lookahead,
+            route_variant=all_args.cbf_route_variant)
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon

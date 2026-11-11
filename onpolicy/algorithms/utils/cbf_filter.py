@@ -184,7 +184,7 @@ class CBFSafetyFilter:
                  ell_hi=0.80, sense_range=None,
                  heading_gate=0.0, adaptive_horizon=False, h_min=1,
                  gap_guard=False, ignore_parked=False, horizon_out=0,
-                 route_turn_limit=0.0, route_lookahead=0.2):
+                 route_turn_limit=0.0, route_lookahead=0.2, route_variant="orig"):
         self.barrier = barrier
         self.prim_table = prim_table
         self.n_actions = prim_table.shape[0]
@@ -213,6 +213,18 @@ class CBFSafetyFilter:
         # predicted path arcs through corners as a real aircraft must.
         self.route_turn_limit = float(route_turn_limit or 0.0)
         self.route_lookahead = float(route_lookahead)
+        # [ES] added: how the route / route_map models predict (default "orig" = as
+        # first built). "fix": also follow the route in the aircraft's final corridor
+        # ("orig" needs >= 2 route waypoints, so a neighbour in its final corridor,
+        # whose route is just its exit, was predicted by constant velocity).
+        # "hybrid": "fix" inside the neighbour's current corridor; outside it (queue,
+        # junction gap, past the final exit) steer towards the neighbour's current
+        # goal, turn rate capped at the air-taxi limit. "goal": always steer towards
+        # the goal. Goals: the simulator's goal ("route") or the published goal point
+        # of the inferred corridor ("route_map").
+        assert route_variant in ("orig", "fix", "hybrid", "goal")
+        self.route_variant = route_variant
+        self.pred_turn_max = float(np.max(np.abs(prim_table[:, 0])))
         self.device = device if device is not None else torch.device("cpu")
 
         # --- Rung-1 geometry-adaptive class-K gain (optional, proactive) -------
@@ -470,12 +482,21 @@ class CBFSafetyFilter:
         na = ws.shape[0]
         out = np.empty((hz, na, 2), dtype=np.float32)
         steps = self.dt * np.arange(1, hz + 1)
+        variant = getattr(self, "route_variant", "orig")
+        goals = getattr(routes, "goals", None)
+        inside = getattr(routes, "inside", None)
+        min_wp = 2 if variant == "orig" else 1
         for j in range(na):
             p, th, v = ws[j, :2], ws[j, 2], ws[j, 3]
             vel = v * np.array([np.cos(th), np.sin(th)])
             path = None if routes is None else routes[j]
             used = False
-            if path is not None and len(path) >= 2:
+            if (variant in ("hybrid", "goal") and goals is not None and goals[j] is not None
+                    and (variant == "goal" or not inside[j])):
+                out[:, j] = _pursue_point_turn_limited(p, th, v, goals[j], self.dt, hz, self.pred_turn_max)
+                self.route_stats["route"] += 1
+                continue
+            if path is not None and len(path) >= min_wp:
                 pts = np.vstack([p[None], np.asarray(path, dtype=np.float64)])
                 seg = np.diff(pts, axis=0)
                 L = np.linalg.norm(seg, axis=1)
@@ -907,6 +928,74 @@ def _follow_turn_limited(p, th, v, pts, seg, L, cum, dt, hz, wmax, lookahead, su
     return out
 
 
+def _pursue_point_turn_limited(p, th, v, goal, dt, hz, wmax, substeps=10):
+    """[ES] added: predicted positions (hz, 2) of an aircraft at p (heading th, speed v)
+    that steers straight at `goal` with its turn rate capped at wmax (rad/s); speed held."""
+    out = np.empty((hz, 2), dtype=np.float64)
+    q = np.array(p, dtype=np.float64)
+    g = np.asarray(goal, dtype=np.float64)
+    th = float(th)
+    h = dt / substeps
+    for k in range(hz):
+        for _ in range(substeps):
+            err = (np.arctan2(g[1] - q[1], g[0] - q[0]) - th + np.pi) % (2 * np.pi) - np.pi
+            th += float(np.clip(err, -wmax * h, wmax * h))
+            q = q + v * h * np.array([np.cos(th), np.sin(th)])
+        out[k] = q
+    return out
+
+
+class RouteSet(list):
+    """[ES] added: per-aircraft route polylines (the list itself, unchanged), plus
+    .goals (per aircraft goal point or None) and .inside (inside its current corridor),
+    used only by the "hybrid" / "goal" route variants."""
+    goals = None
+    inside = None
+
+
+def _published_goal(scen, world, k):
+    """Goal point of corridor k from the published layout (where the scenario puts the
+    goal for aircraft in that corridor); None if the scenario has no such rule."""
+    tp = world.tube_params
+    tubes = [tp] if isinstance(tp, dict) else list(tp)
+    if hasattr(scen, "_goal_pos_for_tube"):
+        return np.asarray(scen._goal_pos_for_tube(tubes[k]), dtype=float)
+    lp = np.asarray(getattr(scen, "landmark_poses", []), dtype=float)
+    if len(lp) and np.allclose(lp, lp[0]):          # single corridor: one shared goal point
+        return lp[0].copy()
+    return None
+
+
+def _map_goal(scen, world, i, rem, gap_reach=1.2):
+    """Goal of aircraft i from sensing + the published map: the goal of its inferred
+    current corridor; if it is just past the exit of a final corridor, that corridor's
+    goal (the destination); else None."""
+    if rem:
+        return _published_goal(scen, world, rem[0])
+    tp = world.tube_params
+    tubes = [tp] if isinstance(tp, dict) else list(tp)
+    succ = corridor_successors(scen, world)
+    p = np.asarray(world.agents[i].state.p_pos, float)
+    best = None
+    for k, t in enumerate(tubes):
+        if succ.get(k) is not None:
+            continue
+        ent, ex = np.asarray(t["entrance"], float), np.asarray(t["exit"], float)
+        L = float(np.linalg.norm(ex - ent)); e = (ex - ent) / L; n = np.array([-e[1], e[0]])
+        hw = float(t.get("half_width", float(t["width"]) / 2))
+        r = p - ent; s_, y_ = float(r @ e), float(r @ n)
+        if L < s_ <= L + gap_reach and abs(y_) <= hw + gap_reach and (best is None or s_ - L < best[0]):
+            best = (s_ - L, k)
+    return None if best is None else _published_goal(scen, world, best[1])
+
+
+def _true_goal(scen, world, i):
+    try:
+        return np.asarray(scen.landmark_poses[scen.goal_match_index[world.agents[i].id]], dtype=float)
+    except Exception:
+        return None
+
+
 def _remaining_tubes(scen, world, i):
     """Corridor indices aircraft i still has to fly, current first."""
     tp = world.tube_params
@@ -924,7 +1013,7 @@ def _remaining_tubes(scen, world, i):
     return list(range(cur, n))
 
 
-def route_paths(scen, world, max_lateral=1.0, remaining=None):
+def route_paths(scen, world, max_lateral=1.0, remaining=None, goal=None):
     """Per-aircraft route polyline (waypoints, km) for the "route" neighbour model:
     keep the aircraft's lateral offset (clamped to the corridor) through its current
     corridor to the exit, then follow the centre line of each remaining corridor.
@@ -932,10 +1021,20 @@ def route_paths(scen, world, max_lateral=1.0, remaining=None):
     + max_lateral, or already past the exit of its last corridor)."""
     tp = world.tube_params
     tubes = [tp] if isinstance(tp, dict) else list(tp)
-    out = []
+    out = RouteSet()
+    goals, inside = [], []          # [ES] added: for the hybrid / goal variants
     for i, a in enumerate(world.agents):
+        rem = None
         try:
             rem = (remaining or _remaining_tubes)(scen, world, i)
+        except Exception:
+            rem = None
+        try:
+            goals.append((goal or (lambda sc, w, k, r: _true_goal(sc, w, k)))(scen, world, i, rem or []))
+        except Exception:
+            goals.append(None)
+        inside.append(False)
+        try:
             if not rem:
                 out.append(None)
                 continue
@@ -947,6 +1046,7 @@ def route_paths(scen, world, max_lateral=1.0, remaining=None):
             r = np.asarray(a.state.p_pos, float) - ent
             s_, y_ = float(r @ e), float(r @ n)
             Lt = float(np.linalg.norm(ex - ent))
+            inside[-1] = bool(0.0 <= s_ <= Lt and abs(y_) <= hw)
             if abs(y_) > hw + max_lateral or (len(rem) == 1 and s_ > Lt):
                 out.append(None)
                 continue
@@ -961,6 +1061,7 @@ def route_paths(scen, world, max_lateral=1.0, remaining=None):
             out.append(np.array(wp))
         except Exception:
             out.append(None)
+    out.goals, out.inside = goals, inside
     return out
 
 
@@ -1038,4 +1139,4 @@ def _infer_remaining_tubes(scen, world, i, gap_reach=1.2, approach_lateral=1.0, 
 
 def route_paths_map(scen, world, max_lateral=1.0):
     """route_paths with each aircraft's route inferred from sensing + the map."""
-    return route_paths(scen, world, max_lateral=max_lateral, remaining=_infer_remaining_tubes)
+    return route_paths(scen, world, max_lateral=max_lateral, remaining=_infer_remaining_tubes, goal=_map_goal)
