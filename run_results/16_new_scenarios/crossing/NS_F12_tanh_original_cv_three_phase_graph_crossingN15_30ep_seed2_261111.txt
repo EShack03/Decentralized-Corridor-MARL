@@ -1,0 +1,33 @@
+# CBF eval result [NS_F12_tanh]  2026-11-11 02:07:43.380947
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=15  episodes=30  seed=2  scenario=three_phase_graph_crossing
+# config: episode_length=300  cbf_neighbour_model=constant_velocity  cbf_horizon=3  cbf_alpha=1.0  cbf_eps=1000.0  cbf_fallback=least_unsafe  cbf_adaptive=False  cbf_alpha_max=2.0  cbf_sense_range=None  cbf_heading_gate=0.6  cbf_adaptive_horizon=False  cbf_h_min=1  cbf_gap_guard=False  cbf_ignore_parked=True  cbf_sep_scale=1.2  cbf_horizon_out=0  cbf_no_barrier=False  use_ReLU=False  model_dir=model_weights  commit=165b0c6
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [NS_F12_tanh] - FILTERED SYSTEM  (N=15, episodes=30, seed=2)
+  filter: neighbour=constant_velocity, alpha=1.0, horizon=3, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         0.800
+  collisions cross-check                 0.800
+mean success rate                       85.56%
+corridor conformance                    88.39%
+collision-free episodes                  60.0%
+min separation (km)                      0.040
+mean closest approach (km)               0.142
+max intrusion depth (km)                 0.018
+integrated intrusion (km.st)             0.024
+near-miss rate %                          0.52
+spacing violations %                      0.14
+throughput (agents/min)                  7.157
+completion time (s)                     125.77
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   0.700
+collisions outside corridor              0.100
+max intrusion in (km)                    0.018
+max intrusion out (km)                   0.001
+
+no-safe-action rate    : 0.87%  (of 119235 agent-steps)
+avg primitives blocked : 0.27 / 25 per step
