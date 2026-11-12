@@ -53,6 +53,14 @@ SCEN = {
     "three_phase_graph_ladder": "ladder",
     "three_phase_graph_branch": "branch",
     "three_phase_graph_sequential_narrow": "seq_narrow",
+    "three_phase_graph_seqmix_none": "seqmix_none",
+    "three_phase_graph_seqmix_g": "seqmix_g",
+    "three_phase_graph_seqmix_s": "seqmix_s",
+    "three_phase_graph_seqmix_w": "seqmix_w",
+    "three_phase_graph_seqmix_gs": "seqmix_gs",
+    "three_phase_graph_seqmix_gw": "seqmix_gw",
+    "three_phase_graph_seqmix_sw": "seqmix_sw",
+    "three_phase_graph_seqmix_gsw": "seqmix_gsw",
 }
 
 # (label at the start of a result line, column name)
