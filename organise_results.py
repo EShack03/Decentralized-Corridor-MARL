@@ -67,6 +67,7 @@ SCEN = {
     "three_phase_graph_triple_merge": "triplemerge",
     "three_phase_graph_ladder": "ladder",
     "three_phase_graph_branch": "branch",
+    "three_phase_graph_sequential_narrow": "seq_narrow",
 }
 
 # whole legacy folders -> new home (moved file by file, keeping sub-folders)
