@@ -76,6 +76,8 @@ SCEN = {
     "three_phase_graph_seqmix_gw": "seqmix_gw",
     "three_phase_graph_seqmix_sw": "seqmix_sw",
     "three_phase_graph_seqmix_gsw": "seqmix_gsw",
+    "three_phase_graph_sequential_hidegoals": "seq_hidegoals",
+    "working_three_phase_graph_hidegoals": "single_hidegoals",
 }
 
 # whole legacy folders -> new home (moved file by file, keeping sub-folders)
