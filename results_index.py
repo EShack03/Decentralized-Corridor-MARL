@@ -48,6 +48,10 @@ SCEN = {
     "three_phase_graph_merge_angle180": "merge180",
     "three_phase_graph_merge_unbalanced": "unbalanced",
     "three_phase_graph_vertiport": "vertiport",
+    "three_phase_graph_river2way": "river2way",
+    "three_phase_graph_triple_merge": "triplemerge",
+    "three_phase_graph_ladder": "ladder",
+    "three_phase_graph_branch": "branch",
 }
 
 # (label at the start of a result line, column name)
