@@ -1175,18 +1175,50 @@ def _infer_remaining_tubes(scen, world, i, gap_reach=1.2, approach_lateral=1.0, 
             d = float(np.linalg.norm(to_ent))
             if d < 1e-9 or float(hd @ to_ent) / d >= approach_cos:
                 ahead.append((d, k))
+    # [ES] added (12 Nov): a corridor may have several successors on a branching map
+    # (e.g. a trunk splitting towards two destinations). The map alone cannot say
+    # which branch a neighbour will take, so the inferred route stops at such a
+    # corridor's exit; in the gap past it the branch is chosen by the neighbour's
+    # heading (within 60 deg of the branch entrance), else unknown. Layouts where
+    # every corridor has at most one successor are unaffected.
+    multi = _successor_lists(scen, world)
     if inside:
         k = min(inside)[1]
     elif past:
-        k = succ[min(past)[1]]
+        k0 = min(past)[1]
+        if len(multi.get(k0, [])) > 1:
+            best = None
+            for c in multi[k0]:
+                to_ent = np.asarray(tubes[c]["entrance"], float) - p
+                d = float(np.linalg.norm(to_ent))
+                cs = 1.0 if d < 1e-9 else float(hd @ to_ent) / d
+                if cs >= approach_cos and (best is None or cs > best[0]):
+                    best = (cs, c)
+            if best is None:
+                return []
+            k = best[1]
+        else:
+            k = succ[k0]
     elif ahead:
         k = min(ahead)[1]
     else:
         return []
     rem, seen = [k], {k}
-    while succ.get(rem[-1]) is not None and succ[rem[-1]] not in seen:
+    while (succ.get(rem[-1]) is not None and succ[rem[-1]] not in seen
+           and len(multi.get(rem[-1], [])) <= 1):
         rem.append(succ[rem[-1]]); seen.add(rem[-1])
     return rem
+
+
+def _successor_lists(scen, world):
+    """[ES] added: corridor index -> list of every corridor that follows it on some
+    route of the published map (several on a branching map)."""
+    out = {}
+    for route in getattr(scen, "ROUTES", []) or []:
+        for a, b in zip(route[:-1], route[1:]):
+            if b not in out.setdefault(a, []):
+                out[a].append(b)
+    return out
 
 
 def route_paths_map(scen, world, max_lateral=1.0):
