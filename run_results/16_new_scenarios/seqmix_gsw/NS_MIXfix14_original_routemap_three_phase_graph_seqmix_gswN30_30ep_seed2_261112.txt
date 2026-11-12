@@ -1,0 +1,33 @@
+# CBF eval result [NS_MIXfix14]  2026-11-12 20:02:03.306561
+# FILTERED SYSTEM  (computed inside the original render() loop)
+# N=30  episodes=30  seed=2  scenario=three_phase_graph_seqmix_gsw
+# config: episode_length=600  cbf_neighbour_model=route_map  cbf_horizon=3  cbf_alpha=1.0  cbf_eps=0.0  cbf_fallback=least_unsafe  cbf_adaptive=False  cbf_alpha_max=2.0  cbf_sense_range=None  cbf_heading_gate=0.6  cbf_adaptive_horizon=False  cbf_h_min=1  cbf_gap_guard=False  cbf_ignore_parked=True  cbf_sep_scale=1.4  cbf_horizon_out=0  cbf_no_barrier=True  cbf_route_turn_limit=0.0  cbf_route_lookahead=0.2  cbf_route_variant=fix  cbf_parked_rule=flag  use_ReLU=False  model_dir=model_weights  commit=916a442
+# collisions = losses of separation (LoS): agent-pair-steps within 0.1524 km (500 ft), per episode
+
+==============================================================
+CBF EVAL RESULT [NS_MIXfix14] - FILTERED SYSTEM  (N=30, episodes=30, seed=2)
+  filter: neighbour=route_map, alpha=1.0, horizon=3, fallback=least_unsafe
+==============================================================
+metric                                   value
+collisions (LoS)                         3.500
+  collisions cross-check                 3.500
+mean success rate                       59.78%
+corridor conformance                    87.19%
+collision-free episodes                  13.3%
+min separation (km)                      0.032
+mean closest approach (km)               0.113
+max intrusion depth (km)                 0.041
+integrated intrusion (km.st)             0.097
+near-miss rate %                          1.06
+spacing violations %                      0.02
+throughput (agents/min)                  4.754
+completion time (s)                     390.93
+
+IN- vs OUTSIDE-CORRIDOR  (in-corridor = either aircraft inside its tube; in + out = total)
+collisions in corridor                   0.700
+collisions outside corridor              2.800
+max intrusion in (km)                    0.012
+max intrusion out (km)                   0.038
+
+no-safe-action rate    : 3.77%  (of 540000 agent-steps)
+avg primitives blocked : 1.23 / 25 per step
