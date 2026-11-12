@@ -146,6 +146,11 @@ def parse_args(args, parser):
                              "the final corridor); fix = follow the route in the final corridor too; "
                              "hybrid = fix inside the current corridor, steer at the neighbour's goal "
                              "(turn-limited) outside it; goal = always steer at the goal")
+    # [ES] added: how neighbours are recognised as parked (with --cbf_ignore_parked)
+    parser.add_argument("--cbf_parked_rule", type=str, default="flag", choices=["flag", "sensed"],
+                        help="flag = simulator finished flag; sensed = inside the goal radius of a "
+                             "published final destination (needs --cbf_neighbour_model route or "
+                             "route_map, which supply the destinations)")
     parser.add_argument("--cbf_horizon_out", type=int, default=0,
                         help="look-ahead (s) used instead of --cbf_horizon while an "
                              "aircraft is outside its corridor tube (e.g. the junction "
@@ -303,7 +308,8 @@ def _attach_cbf_eval(runner, all_args, device):
             horizon_out=all_args.cbf_horizon_out,
             route_turn_limit=all_args.cbf_route_turn_limit,
             route_lookahead=all_args.cbf_route_lookahead,
-            route_variant=all_args.cbf_route_variant)
+            route_variant=all_args.cbf_route_variant,
+            parked_rule=all_args.cbf_parked_rule)
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon
@@ -410,6 +416,12 @@ def main(args):
     if getattr(all_args, "cbf_eval", False) and getattr(all_args, "cbf_show", False):
         all_args.save_gifs = False
     runner.render(get_metrics=_cbf_metrics_only)
+    # [ES] added: sensed parked rule diagnostic (agreement with the simulator flag)
+    _f = getattr(runner, "cbf_eval_filter", None)
+    if _f is not None and getattr(_f, "parked_checks", 0):
+        print(f"[cbf] sensed parked rule: {_f.parked_disagree} disagreements with the finished "
+              f"flag in {_f.parked_checks} aircraft-steps "
+              f"({100.0 * _f.parked_disagree / _f.parked_checks:.3f}%)")
 
     # --- adaptive-ramp diagnostics (how often / how far the ramp engaged) -----
     _filt = getattr(runner, "cbf_eval_filter", None)

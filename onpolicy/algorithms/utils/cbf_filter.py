@@ -184,7 +184,8 @@ class CBFSafetyFilter:
                  ell_hi=0.80, sense_range=None,
                  heading_gate=0.0, adaptive_horizon=False, h_min=1,
                  gap_guard=False, ignore_parked=False, horizon_out=0,
-                 route_turn_limit=0.0, route_lookahead=0.2, route_variant="orig"):
+                 route_turn_limit=0.0, route_lookahead=0.2, route_variant="orig",
+                 parked_rule="flag"):
         self.barrier = barrier
         self.prim_table = prim_table
         self.n_actions = prim_table.shape[0]
@@ -275,6 +276,19 @@ class CBFSafetyFilter:
         # freezes it) and is left out of every diagnostic. Off by default so
         # earlier results reproduce exactly.
         self.ignore_parked = bool(ignore_parked)
+        # [ES] added: how a NEIGHBOUR is recognised as parked (only with
+        # ignore_parked). "flag" (default): the simulator's finished flag
+        # (agent.status). "sensed": from what the ego can sense plus the published
+        # map -- the neighbour is inside the goal radius of a published final
+        # destination (where aircraft land; nothing else flies there). Requiring it
+        # also to be stationary was tried first: it lags the flag by one step at
+        # every arrival and adds blocking at the shared goal point (no-safe-move rate
+        # 0.95 -> 1.26 % on sequential 20), so it was dropped. The ego's OWN parked
+        # state still comes from its flag (an aircraft knows it has landed).
+        assert parked_rule in ("flag", "sensed")
+        self.parked_rule = parked_rule
+        self.parked_disagree = 0          # sensed vs flag disagreements (diagnostic)
+        self.parked_checks = 0
         # --- longer look-ahead outside the corridor (optional) -------------------
         # When > 0 (and the runner supplies agent_in_tube), an ego that is NOT
         # physically inside its corridor tube uses this horizon instead of
@@ -355,6 +369,12 @@ class CBFSafetyFilter:
                 hz_max = max(int(self.horizon), int(getattr(self, "horizon_out", 0) or 0))
                 self._route_pred_cache = self._route_predict(
                     agent_world_states[th], None if agent_routes is None else agent_routes[th], hz_max)
+            # [ES] added: sensed parked rule -- one decision per thread and step
+            self._sensed_parked = None
+            if self.ignore_parked and self.parked_rule == "sensed":
+                self._sensed_parked = self._sense_parked(
+                    th, agent_world_states[th], None if agent_routes is None else agent_routes[th],
+                    None if agent_active is None else agent_active[th])
             for a in range(num_agents):
                 mask, none_safe = self._mask_one_agent(
                     node_obs[th, a], adj[th, a], agent_world_states[th], a, num_nodes,
@@ -364,6 +384,23 @@ class CBFSafetyFilter:
                 available[th, a] = mask
                 no_safe[th, a] = none_safe
         return available, no_safe
+
+    def _sense_parked(self, th, ws, routes, active):
+        """[ES] added: (na,) bool, neighbours sensed as parked: inside the goal radius
+        of a published final destination (no destinations known -> nobody)."""
+        pos = np.asarray(ws, dtype=np.float64)[:, :2]
+        na = pos.shape[0]
+        dest = getattr(routes, "destinations", None)
+        rad = getattr(routes, "dest_radius", None)
+        if dest is not None and len(dest) and rad is not None:
+            d = np.min(np.linalg.norm(pos[:, None, :] - np.asarray(dest)[None], axis=2), axis=1)
+            sensed = d < float(rad)
+        else:
+            sensed = np.zeros(na, dtype=bool)
+        if active is not None:
+            self.parked_checks += na
+            self.parked_disagree += int(np.sum(sensed != ~np.asarray(active, dtype=bool)))
+        return sensed
 
     def _step_batch(self, pos, theta, speed, dtheta, dv):
         """
@@ -558,6 +595,9 @@ class CBFSafetyFilter:
                 self.bind_skipped_inactive += 1
                 return np.ones(self.n_actions, dtype=np.float32), False
             parked = ~_act
+            if getattr(self, "_sensed_parked", None) is not None:
+                parked = self._sensed_parked.copy()     # [ES] added: sensed rule
+                parked[ego] = False
             parked_idx = np.flatnonzero(parked)
 
         # per-agent class-K gain: constant (= self.alpha) unless the geometry-
@@ -948,9 +988,12 @@ def _pursue_point_turn_limited(p, th, v, goal, dt, hz, wmax, substeps=10):
 class RouteSet(list):
     """[ES] added: per-aircraft route polylines (the list itself, unchanged), plus
     .goals (per aircraft goal point or None) and .inside (inside its current corridor),
-    used only by the "hybrid" / "goal" route variants."""
+    used only by the "hybrid" / "goal" route variants, and .destinations /
+    .dest_radius (published final goal points), used only by the sensed parked rule."""
     goals = None
     inside = None
+    destinations = None
+    dest_radius = None
 
 
 def _published_goal(scen, world, k):
@@ -1062,6 +1105,15 @@ def route_paths(scen, world, max_lateral=1.0, remaining=None, goal=None):
         except Exception:
             out.append(None)
     out.goals, out.inside = goals, inside
+    # [ES] added: published final destinations (goal points of corridors with no
+    # successor) and the goal radius, for the sensed parked rule
+    try:
+        succ = corridor_successors(scen, world)
+        out.destinations = [g for g in (_published_goal(scen, world, k) for k in range(len(tubes))
+                                        if succ.get(k) is None) if g is not None]
+        out.dest_radius = float(scen.min_dist_thresh)
+    except Exception:
+        out.destinations, out.dest_radius = None, None
     return out
 
 
