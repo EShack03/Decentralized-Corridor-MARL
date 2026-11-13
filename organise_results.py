@@ -78,6 +78,15 @@ SCEN = {
     "three_phase_graph_seqmix_gsw": "seqmix_gsw",
     "three_phase_graph_sequential_hidegoals": "seq_hidegoals",
     "working_three_phase_graph_hidegoals": "single_hidegoals",
+    "three_phase_graph_seqmix_none_hidegoals": "seqmix_none_hidegoals",
+    "three_phase_graph_seqmix_g_hidegoals": "seqmix_g_hidegoals",
+    "three_phase_graph_seqmix_s_hidegoals": "seqmix_s_hidegoals",
+    "three_phase_graph_seqmix_w_hidegoals": "seqmix_w_hidegoals",
+    "three_phase_graph_seqmix_gs_hidegoals": "seqmix_gs_hidegoals",
+    "three_phase_graph_seqmix_gw_hidegoals": "seqmix_gw_hidegoals",
+    "three_phase_graph_seqmix_sw_hidegoals": "seqmix_sw_hidegoals",
+    "three_phase_graph_seqmix_gsw_hidegoals": "seqmix_gsw_hidegoals",
+    "three_phase_graph_sequential_entrygoal_hidegoals": "seq_entrygoal_hidegoals",
 }
 
 # whole legacy folders -> new home (moved file by file, keeping sub-folders)

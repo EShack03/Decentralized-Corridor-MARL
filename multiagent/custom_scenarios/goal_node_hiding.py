@@ -23,3 +23,11 @@ def hide_goal_nodes(adj, world):
 	adj[lm, :] = 0
 	adj[:, lm] = 0
 	return adj
+
+
+class HideGoalNodes:
+	"""Mixin: put first in the bases, e.g. class Scenario(HideGoalNodes, _orig.Scenario)."""
+
+	def graph_observation(self, agent, world):
+		node_obs, adj = super().graph_observation(agent, world)
+		return node_obs, hide_goal_nodes(adj, world)
