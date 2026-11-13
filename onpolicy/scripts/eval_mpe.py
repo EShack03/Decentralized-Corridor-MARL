@@ -146,6 +146,14 @@ def parse_args(args, parser):
                              "the final corridor); fix = follow the route in the final corridor too; "
                              "hybrid = fix inside the current corridor, steer at the neighbour's goal "
                              "(turn-limited) outside it; goal = always steer at the goal")
+    # [ES] added (13 Nov): imperfect sensing of neighbours for the safety filter (robustness
+    # test, cbf_sensing.py). All zero = off = filter unchanged.
+    parser.add_argument("--cbf_sense_pos_sigma", type=float, default=0.0,
+                        help="m; Gaussian error (per axis) on each neighbour's sensed position")
+    parser.add_argument("--cbf_sense_vel_sigma", type=float, default=0.0,
+                        help="m/s; Gaussian error (per axis) on each neighbour's sensed velocity")
+    parser.add_argument("--cbf_sense_delay", type=int, default=0,
+                        help="s; neighbours' sensed states are this many steps old (uncompensated)")
     # [ES] added: how neighbours are recognised as parked (with --cbf_ignore_parked)
     parser.add_argument("--cbf_parked_rule", type=str, default="flag", choices=["flag", "sensed"],
                         help="flag = simulator finished flag; sensed = inside the goal radius of a "
@@ -310,6 +318,14 @@ def _attach_cbf_eval(runner, all_args, device):
             route_lookahead=all_args.cbf_route_lookahead,
             route_variant=all_args.cbf_route_variant,
             parked_rule=all_args.cbf_parked_rule)
+        # [ES] added: imperfect sensing (only when one of its flags is non-zero)
+        if all_args.cbf_sense_pos_sigma > 0 or all_args.cbf_sense_vel_sigma > 0 or all_args.cbf_sense_delay > 0:
+            from onpolicy.algorithms.utils.cbf_sensing import SensingModel
+            runner.cbf_sensing = SensingModel(pos_sigma_km=all_args.cbf_sense_pos_sigma / 1000.0,
+                                              vel_sigma_kms=all_args.cbf_sense_vel_sigma / 1000.0,
+                                              delay_steps=all_args.cbf_sense_delay, seed=all_args.seed)
+            print(f"[cbf] imperfect sensing ON: position sigma {all_args.cbf_sense_pos_sigma} m, velocity sigma "
+                  f"{all_args.cbf_sense_vel_sigma} m/s, delay {all_args.cbf_sense_delay} s")
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon
@@ -416,6 +432,9 @@ def main(args):
     if getattr(all_args, "cbf_eval", False) and getattr(all_args, "cbf_show", False):
         all_args.save_gifs = False
     runner.render(get_metrics=_cbf_metrics_only)
+    # [ES] added: imperfect-sensing diagnostic
+    if getattr(runner, "cbf_sensing", None) is not None:
+        print("[cbf] " + runner.cbf_sensing.summary())
     # [ES] added: sensed parked rule diagnostic (agreement with the simulator flag)
     _f = getattr(runner, "cbf_eval_filter", None)
     if _f is not None and getattr(_f, "parked_checks", 0):

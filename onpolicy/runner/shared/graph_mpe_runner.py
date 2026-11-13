@@ -875,6 +875,14 @@ class GMPERunner(Runner):
 							dtype=np.float32)[None]                      # (1, na, 4)
 						_scen = getattr(self, "cbf_eval_scen", None)
 						_world_cbf = envs.envs[0].world
+						# [ES] added: imperfect sensing (robustness test; off unless its flags are set)
+						_wtrue = None
+						_sensing = getattr(self, "cbf_sensing", None)
+						if _sensing is not None:
+							from onpolicy.algorithms.utils.cbf_sensing import SensedWorld as _SensedWorld
+							_wtrue = _wstate
+							_wstate = _sensing.apply(_wtrue[0])[None]
+							_world_cbf = _SensedWorld(_world_cbf, _wstate[0])
 						# per-agent in-corridor flag for the junction gap guard (uses the
 						# scenario's own is_in_tube -- the SAME test as the in/out metric).
 						_win_tube = None
@@ -899,7 +907,7 @@ class GMPERunner(Runner):
 							np.concatenate(adj)[None], _wstate,
 							agent_in_tube=_win_tube,
 							agent_active=np.array([not bool(a.status) for a in _wa], dtype=bool)[None],
-							agent_routes=_routes)
+							agent_routes=_routes, true_world_states=_wtrue)
 						_combined = available_actions * _mask[0]          # (na, n_act)
 						_empty = _combined.sum(axis=-1) == 0
 						_combined[_empty] = available_actions[_empty]     # never all-zero

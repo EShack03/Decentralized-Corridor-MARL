@@ -326,7 +326,7 @@ class CBFSafetyFilter:
 
     @torch.no_grad()
     def masks_for_threads(self, node_obs, adj, agent_world_states, agent_in_tube=None,
-                          agent_active=None, agent_routes=None):
+                          agent_active=None, agent_routes=None, true_world_states=None):
         """
         Compute availability masks for every agent in every thread.
 
@@ -380,7 +380,8 @@ class CBFSafetyFilter:
                     node_obs[th, a], adj[th, a], agent_world_states[th], a, num_nodes,
                     agent_in_tube_thread=(None if agent_in_tube is None else agent_in_tube[th]),
                     agent_active_thread=(None if agent_active is None else agent_active[th]),
-                    agent_routes_thread=(None if agent_routes is None else agent_routes[th]))
+                    agent_routes_thread=(None if agent_routes is None else agent_routes[th]),
+                    ego_true_state=(None if true_world_states is None else true_world_states[th][a]))
                 available[th, a] = mask
                 no_safe[th, a] = none_safe
         return available, no_safe
@@ -564,7 +565,7 @@ class CBFSafetyFilter:
 
     def _mask_one_agent(self, node_obs_a, adj_a, world_states_thread, ego, num_nodes,
                         agent_in_tube_thread=None, agent_active_thread=None,
-                        agent_routes_thread=None):
+                        agent_routes_thread=None, ego_true_state=None):
         """
         node_obs_a : (num_nodes, node_feat)  ego agent `ego`'s node features
         adj_a      : (num_nodes, num_nodes)  the (shared) distance matrix
@@ -573,6 +574,8 @@ class CBFSafetyFilter:
         agent_in_tube_thread : (num_agents,) bool or None — gap-guard input
         """
         ego_state = world_states_thread[ego]
+        if ego_true_state is not None:     # [ES] added: imperfect sensing (cbf_sensing.py) --
+            ego_state = ego_true_state     # neighbours as sensed, the ego's own state exact
         other_agent_pos = world_states_thread[:, :2].astype(np.float32)  # (na, 2)
         na = other_agent_pos.shape[0]
         K = self.n_actions
