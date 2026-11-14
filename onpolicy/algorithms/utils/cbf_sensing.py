@@ -65,7 +65,7 @@ class SensingModel:
         self.track = None
         self.stats["resets"] += 1
 
-    def apply(self, wstate):
+    def apply(self, wstate, as_float32=True):
         """wstate: (na, 4) true [x, y, theta, v] this step -> (na, 4) sensed."""
         w = np.asarray(wstate, dtype=np.float64)
         if self.hist and np.max(np.linalg.norm(w[:, :2] - self.hist[-1][:, :2], axis=1)) > self.RESET_JUMP_KM:
@@ -88,7 +88,7 @@ class SensingModel:
         self.stats["steps"] += 1
         self.stats["sum_pos_err"] += float(np.sum(np.linalg.norm(out[:, :2] - w[:, :2], axis=1)))
         self.stats["n"] += na
-        return out.astype(np.float32)
+        return out.astype(np.float32) if as_float32 else out
 
     def _receiver(self, meas):
         """Receiver-side processing of the (delayed, noisy) broadcasts: optional tracker, then
@@ -155,3 +155,80 @@ class SensedWorld:
 
     def __getattr__(self, k):
         return getattr(self._world, k)
+
+
+# ---------------------------------------------------------------------------------------------
+# [ES] added (14 Nov 2026): the same imperfect sensing for the POLICY's observations of its
+# neighbours (one surveillance picture shared by policy and filter). Attached to an environment
+# instance by wrapping its observation callbacks -- no scenario or environment file is edited.
+# While an aircraft's observation is built, every OTHER aircraft's position, velocity and heading
+# are swapped for their sensed values (and the graph distances recomputed from them); the
+# aircraft's own state stays exact; everything is restored immediately afterwards, so the
+# simulation itself (dynamics, rewards, success, losses) always uses the true states.
+# ---------------------------------------------------------------------------------------------
+def _true_states(world):
+    """(na, 4) [x, y, theta, v] -- the air-taxi state vector itself."""
+    return np.array([np.asarray(a.state.values[:4], dtype=np.float64) for a in world.agents])
+
+
+class PolicySensing:
+    def __init__(self, env, model):
+        self.env, self.model = env, model
+        self.world = env.world
+        self._key = None
+        self.sensed = None
+        self._obs = env.observation_callback
+        self._gobs = env.graph_observation_callback
+        env.observation_callback = self._observation
+        if self._gobs is not None:
+            env.graph_observation_callback = self._graph_observation
+
+    def _refresh(self):
+        w = _true_states(self.world)
+        key = w[:, :2].tobytes()
+        if key != self._key:                      # once per simulator step (or reset)
+            self._key = key
+            self.sensed = self.model.apply(w, as_float32=False)
+            self.world._sensed_state = self.sensed.astype(np.float32)   # read by the filter hook
+        return self.sensed
+
+    def _swap(self, ego):
+        s = self._refresh(); saved = []
+        for i, a in enumerate(self.world.agents):
+            if a is ego:
+                continue
+            st = a.state
+            saved.append((st, st.values))
+            v = np.array(st.values, dtype=np.float64, copy=True)
+            v[:4] = s[i, :4]
+            st.values = v
+        return saved
+
+    @staticmethod
+    def _restore(saved):
+        for st, vals in saved:
+            st.values = vals
+
+    def _observation(self, agent, world):
+        saved = self._swap(agent)
+        try:
+            return self._obs(agent=agent, world=world)
+        finally:
+            self._restore(saved)
+
+    def _graph_observation(self, agent, world):
+        saved = self._swap(agent)
+        cached = world.cached_dist_mag
+        try:
+            if cached is not None:
+                pos = np.array([e.state.p_pos for e in world.entities], dtype=np.float64)
+                world.cached_dist_mag = np.linalg.norm(pos[:, None, :] - pos[None, :, :], axis=2)
+            return self._gobs(agent, world)
+        finally:
+            world.cached_dist_mag = cached
+            self._restore(saved)
+
+
+def attach_policy_sensing(env, model):
+    """Wrap one GraphMPE environment instance (e.g. envs.envs[0]) so its policy observations use `model`."""
+    return PolicySensing(env, model)

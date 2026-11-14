@@ -878,10 +878,13 @@ class GMPERunner(Runner):
 						# [ES] added: imperfect sensing (robustness test; off unless its flags are set)
 						_wtrue = None
 						_sensing = getattr(self, "cbf_sensing", None)
-						if _sensing is not None:
+						_shared = (getattr(_world_cbf, "_sensed_state", None)
+								   if getattr(self, "cbf_policy_sensing", None) is not None else None)
+						if _sensing is not None or _shared is not None:
 							from onpolicy.algorithms.utils.cbf_sensing import SensedWorld as _SensedWorld
 							_wtrue = _wstate
-							_wstate = _sensing.apply(_wtrue[0])[None]
+							_wstate = (np.asarray(_shared, dtype=np.float32)[None] if _shared is not None
+									   else _sensing.apply(_wtrue[0])[None])
 							_world_cbf = _SensedWorld(_world_cbf, _wstate[0])
 						# per-agent in-corridor flag for the junction gap guard (uses the
 						# scenario's own is_in_tube -- the SAME test as the in/out metric).

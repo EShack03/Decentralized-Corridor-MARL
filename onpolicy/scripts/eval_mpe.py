@@ -158,6 +158,9 @@ def parse_args(args, parser):
                         help="receiver tracker on each neighbour's broadcasts (cbf_sensing.py)")
     parser.add_argument("--cbf_sense_compensate", action="store_true",
                         help="dead-reckon each delayed broadcast forward by its known age")
+    parser.add_argument("--policy_sense", action="store_true",
+                        help="apply the same imperfect sensing to the POLICY's observations of its neighbours "
+                             "(one picture shared with the filter; cbf_sensing.attach_policy_sensing)")
     # [ES] added: how neighbours are recognised as parked (with --cbf_ignore_parked)
     parser.add_argument("--cbf_parked_rule", type=str, default="flag", choices=["flag", "sensed"],
                         help="flag = simulator finished flag; sensed = inside the goal radius of a "
@@ -322,8 +325,9 @@ def _attach_cbf_eval(runner, all_args, device):
             route_lookahead=all_args.cbf_route_lookahead,
             route_variant=all_args.cbf_route_variant,
             parked_rule=all_args.cbf_parked_rule)
-        # [ES] added: imperfect sensing (only when one of its flags is non-zero)
-        if (all_args.cbf_sense_pos_sigma > 0 or all_args.cbf_sense_vel_sigma > 0 or all_args.cbf_sense_delay > 0
+        # [ES] added: imperfect sensing (only when one of its flags is non-zero; with --policy_sense the
+        # filter instead reads the picture shared with the policy, set up below)
+        if not getattr(all_args, "policy_sense", False) and (all_args.cbf_sense_pos_sigma > 0 or all_args.cbf_sense_vel_sigma > 0 or all_args.cbf_sense_delay > 0
                 or all_args.cbf_sense_smooth or all_args.cbf_sense_compensate):
             from onpolicy.algorithms.utils.cbf_sensing import SensingModel
             runner.cbf_sensing = SensingModel(pos_sigma_km=all_args.cbf_sense_pos_sigma / 1000.0,
@@ -354,6 +358,19 @@ def _attach_cbf_eval(runner, all_args, device):
         print("[cbf] metrics-only (no filter): recording severity for the raw policy")
 
     runner.cbf_eval = CBFEvalCollector(filtered=filtered)
+    # [ES] added (14 Nov): imperfect sensing for the policy's observations too (one shared picture)
+    if getattr(all_args, "policy_sense", False):
+        from onpolicy.algorithms.utils.cbf_sensing import SensingModel, attach_policy_sensing
+        _model = SensingModel(pos_sigma_km=all_args.cbf_sense_pos_sigma / 1000.0,
+                              vel_sigma_kms=all_args.cbf_sense_vel_sigma / 1000.0,
+                              delay_steps=all_args.cbf_sense_delay, seed=all_args.seed,
+                              smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate)
+        runner.cbf_policy_sensing = attach_policy_sensing(runner.envs.envs[0], _model)
+        runner.cbf_sensing_summary = _model
+        print(f"[cbf] imperfect sensing ON for the policy (shared with the filter): position sigma "
+              f"{all_args.cbf_sense_pos_sigma} m, velocity sigma {all_args.cbf_sense_vel_sigma} m/s, delay "
+              f"{all_args.cbf_sense_delay} s, smoothing {all_args.cbf_sense_smooth}, latency compensation "
+              f"{all_args.cbf_sense_compensate}")
 
 
 def main(args):
@@ -442,6 +459,8 @@ def main(args):
     # [ES] added: imperfect-sensing diagnostic
     if getattr(runner, "cbf_sensing", None) is not None:
         print("[cbf] " + runner.cbf_sensing.summary())
+    if getattr(runner, "cbf_sensing_summary", None) is not None:
+        print("[cbf] (policy + filter) " + runner.cbf_sensing_summary.summary())
     # [ES] added: sensed parked rule diagnostic (agreement with the simulator flag)
     _f = getattr(runner, "cbf_eval_filter", None)
     if _f is not None and getattr(_f, "parked_checks", 0):
