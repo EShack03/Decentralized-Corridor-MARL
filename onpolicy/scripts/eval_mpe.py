@@ -154,6 +154,10 @@ def parse_args(args, parser):
                         help="m/s; Gaussian error (per axis) on each neighbour's sensed velocity")
     parser.add_argument("--cbf_sense_delay", type=int, default=0,
                         help="s; neighbours' sensed states are this many steps old (uncompensated)")
+    parser.add_argument("--cbf_sense_smooth", action="store_true",
+                        help="receiver tracker on each neighbour's broadcasts (cbf_sensing.py)")
+    parser.add_argument("--cbf_sense_compensate", action="store_true",
+                        help="dead-reckon each delayed broadcast forward by its known age")
     # [ES] added: how neighbours are recognised as parked (with --cbf_ignore_parked)
     parser.add_argument("--cbf_parked_rule", type=str, default="flag", choices=["flag", "sensed"],
                         help="flag = simulator finished flag; sensed = inside the goal radius of a "
@@ -319,13 +323,16 @@ def _attach_cbf_eval(runner, all_args, device):
             route_variant=all_args.cbf_route_variant,
             parked_rule=all_args.cbf_parked_rule)
         # [ES] added: imperfect sensing (only when one of its flags is non-zero)
-        if all_args.cbf_sense_pos_sigma > 0 or all_args.cbf_sense_vel_sigma > 0 or all_args.cbf_sense_delay > 0:
+        if (all_args.cbf_sense_pos_sigma > 0 or all_args.cbf_sense_vel_sigma > 0 or all_args.cbf_sense_delay > 0
+                or all_args.cbf_sense_smooth or all_args.cbf_sense_compensate):
             from onpolicy.algorithms.utils.cbf_sensing import SensingModel
             runner.cbf_sensing = SensingModel(pos_sigma_km=all_args.cbf_sense_pos_sigma / 1000.0,
                                               vel_sigma_kms=all_args.cbf_sense_vel_sigma / 1000.0,
-                                              delay_steps=all_args.cbf_sense_delay, seed=all_args.seed)
+                                              delay_steps=all_args.cbf_sense_delay, seed=all_args.seed,
+                                              smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate)
             print(f"[cbf] imperfect sensing ON: position sigma {all_args.cbf_sense_pos_sigma} m, velocity sigma "
-                  f"{all_args.cbf_sense_vel_sigma} m/s, delay {all_args.cbf_sense_delay} s")
+                  f"{all_args.cbf_sense_vel_sigma} m/s, delay {all_args.cbf_sense_delay} s, smoothing "
+                  f"{all_args.cbf_sense_smooth}, latency compensation {all_args.cbf_sense_compensate}")
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon
