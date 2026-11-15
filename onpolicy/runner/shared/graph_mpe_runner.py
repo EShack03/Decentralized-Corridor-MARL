@@ -884,7 +884,8 @@ class GMPERunner(Runner):
 							from onpolicy.algorithms.utils.cbf_sensing import SensedWorld as _SensedWorld
 							_wtrue = _wstate
 							_wstate = (np.asarray(_shared, dtype=np.float32)[None] if _shared is not None
-									   else _sensing.apply(_wtrue[0])[None])
+									   else _sensing.apply(_wtrue[0], parked=np.array(
+										   [bool(getattr(_a, "status", False)) for _a in _world_cbf.agents]))[None])
 							_world_cbf = _SensedWorld(_world_cbf, _wstate[0])
 						# per-agent in-corridor flag for the junction gap guard (uses the
 						# scenario's own is_in_tube -- the SAME test as the in/out metric).

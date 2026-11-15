@@ -158,6 +158,8 @@ def parse_args(args, parser):
                         help="receiver tracker on each neighbour's broadcasts (cbf_sensing.py)")
     parser.add_argument("--cbf_sense_compensate", action="store_true",
                         help="dead-reckon each delayed broadcast forward by its known age")
+    parser.add_argument("--cbf_sense_kalman", action="store_true",
+                        help="Kalman tracker (position + velocity, noise from the stated accuracy) instead of the fixed-gain one")
     parser.add_argument("--policy_sense", action="store_true",
                         help="apply the same imperfect sensing to the POLICY's observations of its neighbours "
                              "(one picture shared with the filter; cbf_sensing.attach_policy_sensing)")
@@ -328,12 +330,13 @@ def _attach_cbf_eval(runner, all_args, device):
         # [ES] added: imperfect sensing (only when one of its flags is non-zero; with --policy_sense the
         # filter instead reads the picture shared with the policy, set up below)
         if not getattr(all_args, "policy_sense", False) and (all_args.cbf_sense_pos_sigma > 0 or all_args.cbf_sense_vel_sigma > 0 or all_args.cbf_sense_delay > 0
-                or all_args.cbf_sense_smooth or all_args.cbf_sense_compensate):
+                or all_args.cbf_sense_smooth or all_args.cbf_sense_compensate or all_args.cbf_sense_kalman):
             from onpolicy.algorithms.utils.cbf_sensing import SensingModel
             runner.cbf_sensing = SensingModel(pos_sigma_km=all_args.cbf_sense_pos_sigma / 1000.0,
                                               vel_sigma_kms=all_args.cbf_sense_vel_sigma / 1000.0,
                                               delay_steps=all_args.cbf_sense_delay, seed=all_args.seed,
-                                              smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate)
+                                              smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate,
+                              kalman=all_args.cbf_sense_kalman)
             print(f"[cbf] imperfect sensing ON: position sigma {all_args.cbf_sense_pos_sigma} m, velocity sigma "
                   f"{all_args.cbf_sense_vel_sigma} m/s, delay {all_args.cbf_sense_delay} s, smoothing "
                   f"{all_args.cbf_sense_smooth}, latency compensation {all_args.cbf_sense_compensate}")
@@ -364,7 +367,8 @@ def _attach_cbf_eval(runner, all_args, device):
         _model = SensingModel(pos_sigma_km=all_args.cbf_sense_pos_sigma / 1000.0,
                               vel_sigma_kms=all_args.cbf_sense_vel_sigma / 1000.0,
                               delay_steps=all_args.cbf_sense_delay, seed=all_args.seed,
-                              smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate)
+                              smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate,
+                              kalman=all_args.cbf_sense_kalman)
         runner.cbf_policy_sensing = attach_policy_sensing(runner.envs.envs[0], _model)
         runner.cbf_sensing_summary = _model
         print(f"[cbf] imperfect sensing ON for the policy (shared with the filter): position sigma "

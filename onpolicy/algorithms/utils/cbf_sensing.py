@@ -29,6 +29,12 @@ Receiver-side mitigations (14 Nov 2026; both off by default):
                      (smoothed) state forward along its velocity by d before the
                      filter uses it. Compensation needs the age only, never the
                      true state.
+  * kalman        -- (15 Nov 2026) alternative tracker: a constant-velocity Kalman
+                     filter per axis, measuring broadcast position AND velocity, with
+                     the measurement noise set from the broadcast's stated accuracy
+                     (ADS-B NACp / NACv; here the condition's sigmas) and white-
+                     acceleration process noise SIGMA_A = 5 m/s^2 (chosen on recorded
+                     flight paths from a separate run). Replaces the fixed-gain tracker.
 Order: delayed, noisy broadcast -> tracker -> dead-reckoning by the age -> filter.
 """
 import numpy as np
@@ -45,29 +51,41 @@ class SensingModel:
     BETA = 0.8    # velocity gain (broadcast velocity is accurate relative to 90 m/s, so trust it)
     DT = 1.0      # s per step
 
-    def __init__(self, pos_sigma_km=0.0, vel_sigma_kms=0.0, delay_steps=0, seed=0, smooth=False, compensate=False):
+    SIGMA_A = 0.005   # km/s^2 (5 m/s^2): Kalman process noise (manoeuvre acceleration); fixed before testing
+    MIN_SIGMA = 1e-6  # km, km/s: floor on the stated accuracy (perfect sensing -> trust the broadcast)
+
+    def __init__(self, pos_sigma_km=0.0, vel_sigma_kms=0.0, delay_steps=0, seed=0, smooth=False, compensate=False,
+                 kalman=False):
         self.pos_sigma = float(pos_sigma_km)
         self.vel_sigma = float(vel_sigma_kms)
         self.delay = int(delay_steps)
         self.smooth = bool(smooth)
         self.compensate = bool(compensate)
-        self.track = None             # (na, 4) [x, y, vx, vy] tracker state
+        self.kalman = bool(kalman)
+        self.track = None             # tracker state: (na, 4) [x, y, vx, vy], or (na, 2 axes, [p, v]) for Kalman
+        self.kf_P = None              # (na, 2 axes, 2, 2) Kalman covariance
         self.rng = np.random.default_rng(1_000_003 + int(seed))
         self.hist = []
         self.stats = {"steps": 0, "resets": 0, "sum_pos_err": 0.0, "n": 0}
 
     @property
     def active(self):
-        return self.pos_sigma > 0 or self.vel_sigma > 0 or self.delay > 0 or self.smooth or self.compensate
+        return (self.pos_sigma > 0 or self.vel_sigma > 0 or self.delay > 0 or self.smooth or self.compensate
+                or self.kalman)
 
     def reset(self):
         self.hist = []
         self.track = None
+        self.kf_P = None
         self.stats["resets"] += 1
 
-    def apply(self, wstate, as_float32=True):
-        """wstate: (na, 4) true [x, y, theta, v] this step -> (na, 4) sensed."""
+    def apply(self, wstate, as_float32=True, parked=None):
+        """wstate: (na, 4) true [x, y, theta, v] this step -> (na, 4) sensed.
+        parked: optional (na,) bool -- parked aircraft broadcast zero velocity. (The simulator freezes a
+        parked aircraft's position but leaves its speed state unchanged; a real parked aircraft reports 0.)"""
         w = np.asarray(wstate, dtype=np.float64)
+        if parked is not None and np.any(parked):
+            w = w.copy(); w[np.asarray(parked, dtype=bool), 3] = 0.0
         if self.hist and np.max(np.linalg.norm(w[:, :2] - self.hist[-1][:, :2], axis=1)) > self.RESET_JUMP_KM:
             self.reset()
         self.hist.append(w.copy())
@@ -83,7 +101,7 @@ class SensingModel:
             vel += self.rng.normal(0.0, self.vel_sigma, size=(na, 2))
             out[:, 2] = np.arctan2(vel[:, 1], vel[:, 0])
             out[:, 3] = np.linalg.norm(vel, axis=1)
-        if self.smooth or self.compensate:
+        if self.smooth or self.compensate or self.kalman:
             out = self._receiver(out)
         self.stats["steps"] += 1
         self.stats["sum_pos_err"] += float(np.sum(np.linalg.norm(out[:, :2] - w[:, :2], axis=1)))
@@ -95,7 +113,9 @@ class SensingModel:
         optional dead-reckoning by the known age of the data."""
         z = meas[:, :2]
         vz = meas[:, 3:4] * np.stack([np.cos(meas[:, 2]), np.sin(meas[:, 2])], axis=1)
-        if self.smooth:
+        if self.kalman:
+            pos, vel = self._kalman(z, vz)
+        elif self.smooth:
             if self.track is None:
                 self.track = np.concatenate([z, vz], axis=1)
             else:
@@ -115,10 +135,31 @@ class SensingModel:
         out[:, 3] = np.linalg.norm(vel, axis=1)
         return out
 
+    def _kalman(self, z, vz):
+        """Constant-velocity Kalman filter, x and y axes independent. State per axis [p, v];
+        measurement per axis [p, v] (ADS-B broadcasts both). R from the stated accuracy, Q from SIGMA_A."""
+        F = np.array([[1.0, self.DT], [0.0, 1.0]])
+        G = np.array([[0.5 * self.DT ** 2], [self.DT]])
+        Q = (self.SIGMA_A ** 2) * (G @ G.T)
+        R = np.diag([max(self.pos_sigma, self.MIN_SIGMA) ** 2, max(self.vel_sigma, self.MIN_SIGMA) ** 2])
+        meas = np.stack([np.stack([z[:, 0], vz[:, 0]], 1), np.stack([z[:, 1], vz[:, 1]], 1)], 1)   # (na, axis, [p, v])
+        if self.track is None or self.kf_P is None:
+            self.track = meas.copy()
+            self.kf_P = np.broadcast_to(R, meas.shape[:2] + (2, 2)).copy()
+        else:
+            X = self.track @ F.T                               # predict
+            P = F @ self.kf_P @ F.T + Q
+            K = P @ np.linalg.inv(P + R)                       # gain (measurement matrix = identity)
+            self.track = X + (K @ (meas - X)[..., None])[..., 0]
+            self.kf_P = (np.eye(2) - K) @ P
+        pos = self.track[:, :, 0].copy(); vel = self.track[:, :, 1].copy()
+        return pos, vel
+
     def summary(self):
         n = max(self.stats["n"], 1)
         return (f"sensing model: position sigma {self.pos_sigma * 1000:.0f} m, velocity sigma "
                 f"{self.vel_sigma * 1000:.1f} m/s, delay {self.delay} s, smoothing {'on' if self.smooth else 'off'}, "
+                f"Kalman {'on' if self.kalman else 'off'}, "
                 f"latency compensation {'on' if self.compensate else 'off'}; mean position error seen by "
                 f"the filter {1000 * self.stats['sum_pos_err'] / n:.1f} m over {self.stats['steps']} steps, "
                 f"{self.stats['resets']} episode resets")
@@ -188,7 +229,8 @@ class PolicySensing:
         key = w[:, :2].tobytes()
         if key != self._key:                      # once per simulator step (or reset)
             self._key = key
-            self.sensed = self.model.apply(w, as_float32=False)
+            parked = np.array([bool(getattr(a, "status", False)) for a in self.world.agents])
+            self.sensed = self.model.apply(w, as_float32=False, parked=parked)
             self.world._sensed_state = self.sensed.astype(np.float32)   # read by the filter hook
         return self.sensed
 
