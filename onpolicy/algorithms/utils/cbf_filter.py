@@ -185,8 +185,11 @@ class CBFSafetyFilter:
                  heading_gate=0.0, adaptive_horizon=False, h_min=1,
                  gap_guard=False, ignore_parked=False, horizon_out=0,
                  route_turn_limit=0.0, route_lookahead=0.2, route_variant="orig",
-                 parked_rule="flag"):
+                 parked_rule="flag", clamp_after=False):
         self.barrier = barrier
+        # [ES] added: cap speed after integrating each step (as AirTaxiXYState.update_state does) instead of
+        # within it; with the environment's x5 action scaling this matters (speed overshoots inside the step)
+        self.clamp_after = bool(clamp_after)
         self.prim_table = prim_table
         self.n_actions = prim_table.shape[0]
         self.sep = sep
@@ -419,7 +422,9 @@ class CBFSafetyFilter:
         for _ in range(substeps):
             p = p + np.stack([v * np.cos(th), v * np.sin(th)], axis=1) * h
             th = th + dtheta * h
-            v = np.clip(v + dv * h, self.v_min, self.v_max)
+            v = v + dv * h if self.clamp_after else np.clip(v + dv * h, self.v_min, self.v_max)
+        if self.clamp_after:
+            v = np.clip(v, self.v_min, self.v_max)
         return p.astype(np.float32), th.astype(np.float32), v.astype(np.float32)
 
     def _record_binding(self, bar_ok, hard_ok, regime, outside_tube=False):

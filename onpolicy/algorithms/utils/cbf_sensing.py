@@ -55,7 +55,9 @@ class SensingModel:
     MIN_SIGMA = 1e-6  # km, km/s: floor on the stated accuracy (perfect sensing -> trust the broadcast)
 
     def __init__(self, pos_sigma_km=0.0, vel_sigma_kms=0.0, delay_steps=0, seed=0, smooth=False, compensate=False,
-                 kalman=False):
+                 kalman=False, ground_vel=False):
+        self.ground_vel = bool(ground_vel)   # [ES] added: broadcast the actual ground velocity (motion over the last second)
+        self.prev_pos = None
         self.pos_sigma = float(pos_sigma_km)
         self.vel_sigma = float(vel_sigma_kms)
         self.delay = int(delay_steps)
@@ -71,9 +73,10 @@ class SensingModel:
     @property
     def active(self):
         return (self.pos_sigma > 0 or self.vel_sigma > 0 or self.delay > 0 or self.smooth or self.compensate
-                or self.kalman)
+                or self.kalman or self.ground_vel)
 
     def reset(self):
+        self.prev_pos = None
         self.hist = []
         self.track = None
         self.kf_P = None
@@ -88,6 +91,19 @@ class SensingModel:
             w = w.copy(); w[np.asarray(parked, dtype=bool), 3] = 0.0
         if self.hist and np.max(np.linalg.norm(w[:, :2] - self.hist[-1][:, :2], axis=1)) > self.RESET_JUMP_KM:
             self.reset()
+        if self.ground_vel:
+            # GNSS-like velocity: the aircraft's actual displacement over the last second (track angle and
+            # ground speed). The simulator's speed state is capped after each step, so at full speed it
+            # understates the motion by 3-5 %. First step of an episode: the state (no previous position).
+            pos_now = w[:, :2].copy()
+            if self.prev_pos is not None and self.prev_pos.shape == pos_now.shape:
+                d = (pos_now - self.prev_pos) / self.DT
+                gs = np.linalg.norm(d, axis=1)
+                w = w.copy()
+                mv = gs > 1e-9
+                w[mv, 2] = np.arctan2(d[mv, 1], d[mv, 0])
+                w[:, 3] = gs
+            self.prev_pos = pos_now
         self.hist.append(w.copy())
         if len(self.hist) > self.delay + 1:
             self.hist = self.hist[-(self.delay + 1):]

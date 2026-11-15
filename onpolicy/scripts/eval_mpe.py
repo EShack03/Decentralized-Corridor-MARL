@@ -160,6 +160,14 @@ def parse_args(args, parser):
                         help="dead-reckon each delayed broadcast forward by its known age")
     parser.add_argument("--cbf_sense_kalman", action="store_true",
                         help="Kalman tracker (position + velocity, noise from the stated accuracy) instead of the fixed-gain one")
+    parser.add_argument("--cbf_sense_ground_vel", action="store_true",
+                        help="[ES] added: each aircraft broadcasts its actual ground velocity (its motion over the "
+                             "last second, as GNSS-derived ADS-B velocity) instead of its heading/speed state; the "
+                             "state underestimates motion at full speed because the speed cap is applied after the step")
+    parser.add_argument("--cbf_exact_dynamics", action="store_true",
+                        help="[ES] added: the filter models each candidate move exactly as the environment executes "
+                             "it: the environment multiplies every action by its sensitivity (x5, multiagent/"
+                             "environment.py _set_action) and caps speed only after integrating the step")
     parser.add_argument("--policy_sense", action="store_true",
                         help="apply the same imperfect sensing to the POLICY's observations of its neighbours "
                              "(one picture shared with the filter; cbf_sensing.attach_policy_sensing)")
@@ -261,6 +269,7 @@ _CBF_N_ACCEL = 5
 _CBF_N_ANGRATE = 5
 _CBF_DT = 1.0
 _CBF_SEP = 500 * 0.0003048
+_ENV_ACTION_SENSITIVITY = 5.0   # [ES] added: multiagent/environment.py _set_action: agent.action.u *= 5.0 (agent.accel is None)
 _CBF_MAX_EDGE = 2 * 1.60934
 
 
@@ -296,6 +305,8 @@ def _attach_cbf_eval(runner, all_args, device):
         prim_table = build_primitive_table(_CBF_N_ACCEL, _CBF_N_ANGRATE,
                                            _CBF_ACCEL_MIN, _CBF_ACCEL_MAX,
                                            _CBF_ANG_RATE_MAX)
+        if getattr(all_args, "cbf_exact_dynamics", False):   # [ES] added: the moves actually executed
+            prim_table = (prim_table * _ENV_ACTION_SENSITIVITY).astype(np.float32)
         if getattr(all_args, "cbf_no_barrier", False):
             barrier = None                          # [ES] added: no learned barrier
         else:
@@ -326,20 +337,23 @@ def _attach_cbf_eval(runner, all_args, device):
             route_turn_limit=all_args.cbf_route_turn_limit,
             route_lookahead=all_args.cbf_route_lookahead,
             route_variant=all_args.cbf_route_variant,
-            parked_rule=all_args.cbf_parked_rule)
+            parked_rule=all_args.cbf_parked_rule,
+            clamp_after=getattr(all_args, "cbf_exact_dynamics", False))
         # [ES] added: imperfect sensing (only when one of its flags is non-zero; with --policy_sense the
         # filter instead reads the picture shared with the policy, set up below)
         if not getattr(all_args, "policy_sense", False) and (all_args.cbf_sense_pos_sigma > 0 or all_args.cbf_sense_vel_sigma > 0 or all_args.cbf_sense_delay > 0
-                or all_args.cbf_sense_smooth or all_args.cbf_sense_compensate or all_args.cbf_sense_kalman):
+                or all_args.cbf_sense_smooth or all_args.cbf_sense_compensate or all_args.cbf_sense_kalman
+                or all_args.cbf_sense_ground_vel):
             from onpolicy.algorithms.utils.cbf_sensing import SensingModel
             runner.cbf_sensing = SensingModel(pos_sigma_km=all_args.cbf_sense_pos_sigma / 1000.0,
                                               vel_sigma_kms=all_args.cbf_sense_vel_sigma / 1000.0,
                                               delay_steps=all_args.cbf_sense_delay, seed=all_args.seed,
                                               smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate,
-                              kalman=all_args.cbf_sense_kalman)
+                              kalman=all_args.cbf_sense_kalman, ground_vel=all_args.cbf_sense_ground_vel)
             print(f"[cbf] imperfect sensing ON: position sigma {all_args.cbf_sense_pos_sigma} m, velocity sigma "
                   f"{all_args.cbf_sense_vel_sigma} m/s, delay {all_args.cbf_sense_delay} s, smoothing "
-                  f"{all_args.cbf_sense_smooth}, latency compensation {all_args.cbf_sense_compensate}")
+                  f"{all_args.cbf_sense_smooth}, latency compensation {all_args.cbf_sense_compensate}, ground velocity "
+                  f"{all_args.cbf_sense_ground_vel}")
         if all_args.cbf_adaptive or all_args.cbf_adaptive_horizon:
             _hz_desc = (f"horizon {all_args.cbf_horizon}->{all_args.cbf_h_min} (ADAPTIVE)"
                         if all_args.cbf_adaptive_horizon
@@ -368,7 +382,7 @@ def _attach_cbf_eval(runner, all_args, device):
                               vel_sigma_kms=all_args.cbf_sense_vel_sigma / 1000.0,
                               delay_steps=all_args.cbf_sense_delay, seed=all_args.seed,
                               smooth=all_args.cbf_sense_smooth, compensate=all_args.cbf_sense_compensate,
-                              kalman=all_args.cbf_sense_kalman)
+                              kalman=all_args.cbf_sense_kalman, ground_vel=all_args.cbf_sense_ground_vel)
         runner.cbf_policy_sensing = attach_policy_sensing(runner.envs.envs[0], _model)
         runner.cbf_sensing_summary = _model
         print(f"[cbf] imperfect sensing ON for the policy (shared with the filter): position sigma "
