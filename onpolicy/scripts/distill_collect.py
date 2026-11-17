@@ -176,14 +176,21 @@ def main(argv):
             pk = np.where(interv, 1.0, np.where(blocked, dargs.distill_keep_blocked, dargs.distill_keep_frac))
             keep = fly & (u < pk)
             if keep.any():
-                ADJ.append(ad[0].astype(np.float32))                # adjacency is the same for every aircraft
+                # The adjacency is usually the same for every aircraft, but not on a second when an aircraft parks:
+                # the scenario builds the aircraft's graphs one by one and an aircraft that parks part-way through is
+                # disconnected only in the later ones. Store the shared matrix once and any aircraft's that differs.
                 k = np.where(keep)[0]
+                ADJ.append(ad[0].astype(np.float32))
+                aix = np.full(len(k), len(ADJ) - 1, np.int32)
+                for j, kk in enumerate(k):
+                    if kk != 0 and not np.array_equal(ad[kk], ad[0]):
+                        ADJ.append(ad[kk].astype(np.float32)); aix[j] = len(ADJ) - 1
                 S["obs"].append(o[k]); S["node_obs"].append(no[k]); S["agent_id"].append(ai[k])
                 S["rnn"].append(h_s[k]); S["mask"].append(masks[k]); S["label"].append(a_teach[k])
                 S["orig_logits"].append(lt.numpy()[k]); S["interv"].append(interv[k])
                 S["w"].append((1.0 / pk[k]).astype(np.float32))
                 S["fmask"].append(filt[k].astype(np.uint8)); S["blocked"].append(blocked[k])
-                S["adj_idx"].append(np.full(len(k), len(ADJ) - 1, np.int32))
+                S["adj_idx"].append(aix)
             n_int += int(interv.sum()); n_blk += int(blocked.sum()); n_kept += int(keep.sum()); n_fly += int(fly.sum())
             # who flies this second: teacher (prob beta) or student, per aircraft
             act = np.where(rng.random(na) < dargs.distill_beta, a_teach, a_stud)
