@@ -112,6 +112,14 @@ class GR_MAPPO_Lag(GR_MAPPO):
         self.budget_factor = np.array([args.lag_budget_factor_sep,
                                        args.lag_budget_factor_corr], float)
         self.budget_floor = args.lag_budget_floor
+        # [ES] 18 Nov: curriculum stages 2+ start from an earlier stage's weights (their folder has
+        # lag_state.pt) and re-measure the budget from THAT policy at the new density. A factor < 1
+        # would then compound (corridor 0.7 -> 0.49 -> 0.34 of the original by stage 3), so later
+        # stages use factor 1.0: hold what the earlier stage achieved, at the higher density.
+        md = getattr(args, "model_dir", None)
+        if md and os.path.exists(os.path.join(str(md), "lag_state.pt")):
+            self.budget_factor = np.ones_like(self.budget_factor)
+            print("[lag] later curriculum stage (start weights have lag_state.pt): budget factors 1.0")
         self._auto = self.budget <= 0           # <= 0 means: measure it in warm-up
         self._J_warm = []
         if self.mode == "lagrangian" and self._auto.any() and self.warmup < 1:
