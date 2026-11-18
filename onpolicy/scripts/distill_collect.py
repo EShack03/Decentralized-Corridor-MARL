@@ -76,7 +76,7 @@ def masked_argmax(logits, avail):
 
 
 # ---------------------------------------------------------------- filter mask (copy of the runner's block)
-def _filter_mask(runner, envs, node_obs, adj, available_actions):
+def _filter_mask(runner, envs, node_obs, adj, available_actions, per_agent=False):
     """Same computation as the single-policy render path in graph_mpe_runner.py (CBF eval filter block)."""
     from onpolicy.algorithms.utils import cbf_eval_metrics as _cbfm
     from onpolicy.algorithms.utils.cbf_filter import route_paths, route_paths_map
@@ -112,6 +112,8 @@ def _filter_mask(runner, envs, node_obs, adj, available_actions):
     comb = available_actions * mask[0]
     empty = comb.sum(axis=-1) == 0
     comb[empty] = available_actions[empty]          # never all-zero (as the runner)
+    if per_agent:                                   # [ES] 18 Nov: per-aircraft flags (constrained training)
+        return comb, np.asarray(no_safe[0], dtype=bool)
     return comb, int(no_safe[0].sum())
 
 

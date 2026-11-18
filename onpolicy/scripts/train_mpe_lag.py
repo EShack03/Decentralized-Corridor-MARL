@@ -198,6 +198,9 @@ def parse_args(args, parser):
     parser.add_argument("--lag_budget_corr", type=float, default=0.0,
                         help="Corridor budget (seconds off-corridor per aircraft per "
                         "episode); <= 0 = measure it in warm-up.")
+    parser.add_argument("--lag_filter_kind", choices=["plain", "final"], default="plain",
+                        help="plain = the 7 Nov constant-velocity filter; final = the project's final filter, built "
+                        "exactly as the evaluations build it (eval_mpe._attach_cbf_eval).")
     parser.add_argument("--lag_budget_with_filter", type=lambda x: bool(strtobool(x)), default=True,
                         help="With --lag_filter False: True = the warm-up runs WITH the filter, so the "
                         "automatic budget is the starting policy's cost with the filter; False = the "

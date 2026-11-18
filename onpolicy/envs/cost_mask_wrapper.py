@@ -35,7 +35,12 @@
 # the same info dicts to describe the reset state (the costs stay those of the
 # step that ended the episode).
 #
-# Training filter = the plain filter (S2_ip): constant-velocity neighbours,
+# [ES] 18 Nov: --lag_filter_kind final builds the project's FINAL filter instead, through
+# eval_mpe._attach_cbf_eval with the same flags the evaluations use (route-map prediction, exact move
+# model, x1.2 margin, 3 s, parked ignored, no barrier, Kalman + ground velocity at zero noise), and
+# computes its masks with the same code path as the evaluation runner (distill_collect._filter_mask).
+#
+# Training filter (kind "plain", the 7 Nov default) = the plain filter (S2_ip): constant-velocity neighbours,
 # fixed look-ahead, alpha = 1, parked aircraft ignored, no caution dial, no gap
 # guard, least-unsafe fallback. The barrier network is the Stage-1 barrier.
 # ============================================================================
@@ -73,6 +78,10 @@ class CostMaskEnv:
         self.episode = -1                    # becomes 0 at the first reset
         need_h = self.filter_on or self.warm_episodes > 0
         need_1 = float(getattr(args, "lag_mask_coef", 0.0)) > 0.0
+        self.final = None
+        if need_h and getattr(args, "lag_filter_kind", "plain") == "final":
+            self._build_final(args)
+            need_h = False                   # the plain filter is not built
         if need_h or need_1:
             torch.set_num_threads(1)
             from onpolicy.algorithms.utils.cbf_gnn import CBFGNN
@@ -124,6 +133,36 @@ class CostMaskEnv:
             self.adj_observation_space = [
                 _sp.Box(low=-np.inf, high=np.inf, shape=(self.pad, self.pad), dtype=np.float32)
                 for _ in self.env.adj_observation_space]
+
+    # final filter (identical construction and mask path to the evaluations) -----------------
+    FINAL_FLAGS = ["--cbf_eval", "--cbf_barrier", "cbf_stage1_barrier.pt", "--cbf_alpha", "1.0", "--cbf_horizon", "3",
+                   "--cbf_fallback", "least_unsafe", "--cbf_filter", "--cbf_neighbour_model", "route_map",
+                   "--cbf_ignore_parked", "--cbf_no_barrier", "--cbf_sep_scale", "1.2", "--cbf_route_variant", "fix",
+                   "--cbf_exact_dynamics", "--cbf_sense_ground_vel", "--cbf_sense_pos_sigma", "0", "--cbf_sense_vel_sigma", "0",
+                   "--cbf_sense_delay", "0", "--cbf_sense_kalman", "--cbf_sense_compensate"]
+
+    def _build_final(self, args):
+        import types, io, contextlib
+        torch.set_num_threads(1)
+        from onpolicy.config import get_config
+        from onpolicy.scripts.eval_mpe import parse_args as _eval_parse, _attach_cbf_eval
+        ea = _eval_parse(self.FINAL_FLAGS + ["--num_agents", str(args.num_agents), "--seed", str(args.seed),
+                                             "--env_name", "GraphMPE", "--scenario_name", args.scenario_name], get_config())
+        shim = types.SimpleNamespace()
+        with contextlib.redirect_stdout(io.StringIO()):
+            _attach_cbf_eval(shim, ea, torch.device("cpu"))
+        shim.cbf_eval_scen = self._scen()
+        self.final = shim
+        self._envs_shim = types.SimpleNamespace(envs=[self.env])
+
+    def _final_masks(self, node_obs_n, adj_n):
+        from onpolicy.scripts.distill_collect import _filter_mask
+        n_act = self.env.action_space[0].n
+        avail = np.ones((len(self._agents()), n_act), np.float32)
+        no = np.asarray(node_obs_n, dtype=np.float32)[None]
+        ad = np.asarray(adj_n, dtype=np.float32)[None]
+        mask, nosafe = _filter_mask(self.final, self._envs_shim, no, ad, avail, per_agent=True)
+        return mask.astype(np.float32), nosafe
 
     def _pad(self, node_obs_n, adj_n):
         if not self.pad:
@@ -181,6 +220,12 @@ class CostMaskEnv:
 
     def _masks(self, node_obs_n, adj_n):
         """(mask_h, nosafe, mask_1) for the current state, each None if off."""
+        if self.final is not None:
+            use_f = self.filter_on or self.episode < self.warm_episodes
+            if not use_f:
+                return None, None, None
+            mh, ns = self._final_masks(node_obs_n, adj_n)
+            return mh, ns, None
         if self.filter_h is None and self.filter_1 is None:
             return None, None, None
         ags = self._agents()
@@ -245,6 +290,10 @@ class CostMaskEnv:
         obs_n, agent_id_n, node_obs_n, adj_n = self.env.reset(*args, **kwargs)
         self.episode += 1
         self._off = np.zeros(len(self._agents()), dtype=bool)
+        if self.final is not None:
+            if getattr(self.final, "cbf_sensing", None) is not None:
+                self.final.cbf_sensing.reset()          # a new episode starts a new track
+            self.final.cbf_eval_scen = self._scen()
         if self._last_info is not None:              # auto-reset inside a step
             mh, ns, m1 = self._masks(node_obs_n, adj_n)
             self._put_masks(self._last_info, mh, ns, m1)

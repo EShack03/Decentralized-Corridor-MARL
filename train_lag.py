@@ -38,6 +38,14 @@ SETUPS = {
     # [ES] 18 Nov: from the distilled student, no filter anywhere, budget = the start policy's own cost
     "lag_distilled": ["--lag_mode", "lagrangian", "--lag_filter", "False", "--lag_budget_with_filter", "False",
                       "--lag_mask_coef", "0"],
+    # [ES] 18 Nov (holiday run), both from the ORIGINAL policy, final filter where a filter is used:
+    #   A: final filter in the training loop (deployed with it); budget = original + filter cost
+    "lag_final": ["--lag_mode", "lagrangian", "--lag_filter", "True", "--lag_filter_kind", "final",
+                  "--lag_mask_coef", "0"],
+    #   B: no filter in training; warm-up measures the original + final filter cost as the budget the
+    #      policy must reach on its own
+    "lag_orig": ["--lag_mode", "lagrangian", "--lag_filter", "False", "--lag_filter_kind", "final",
+                 "--lag_budget_with_filter", "True", "--lag_mask_coef", "0"],
 }
 LAYOUTS = ["single", "sequential", "merge", "mergeseq"]
 FIRST_SCEN = {"single": "working_three_phase_graph_hidegoals",
