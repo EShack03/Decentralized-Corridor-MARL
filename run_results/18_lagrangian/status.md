@@ -1,17 +1,17 @@
-# Constrained training - status (Fri 20 Nov 2026 14:15 server time)
+# Constrained training - status (Fri 20 Nov 2026 20:15 server time)
 
 Phase: **training**. Started Wed 18 Nov 20:15. Stages [10, 15, 20], 1000000 steps per stage (~312 updates), 16 workers, episodes 200 s, PPO epochs 4.
 
 | Arm | Seed | Stage | Updates in stage | Warm-up | J sep (budget, lambda) | J corr (budget, lambda) | Fallback | KL | State |
 |---|---|---|---|---|---|---|---|---|---|
-| lag_final | 1 | 20 | 94/312 | 0 | 2.569 (2.189, 1.36) | 0.03 (0.01, 10.00) | 0.001 | 0.0888 | training (attempt 1) |
-| lag_final | 2 | 20 | 90/312 | 0 | 2.373 (2.471, 0.00) | 0.12 (0.36, 0.00) | 0.000 | 0.0611 | training (attempt 1) |
-| lag_final | 3 | 20 | 98/312 | 0 | 2.836 (2.509, 0.49) | 0.42 (0.01, 10.00) | 0.001 | 0.0542 | training (attempt 1) |
-| lag_final | 4 | 20 | 92/312 | 0 | 2.803 (3.122, 0.00) | 0.00 (0.01, 10.00) | 0.000 | 0.0278 | training (attempt 1) |
-| lag_orig | 1 | 20 | 126/312 | 0 | 0.352 (0.541, 3.39) | 0.01 (0.01, 10.00) | 0.000 | 0.0444 | training (attempt 1) |
-| lag_orig | 2 | 20 | 121/312 | 0 | 0.552 (0.592, 5.23) | 0.64 (0.04, 10.00) | 0.000 | 0.1070 | training (attempt 1) |
-| lag_orig | 3 | 20 | 121/312 | 0 | 0.477 (0.613, 1.36) | 0.01 (0.16, 3.72) | 0.000 | 0.0883 | training (attempt 1) |
-| lag_orig | 4 | 20 | 146/312 | 0 | 0.555 (0.418, 0.34) | 0.03 (0.27, 0.00) | 0.000 | 0.0563 | training (attempt 1) |
+| lag_final | 1 | 20 | 143/312 | 0 | 1.830 (2.189, 1.04) | 0.01 (0.01, 10.00) | 0.000 | 0.1055 | training (attempt 1) |
+| lag_final | 2 | 20 | 138/312 | 0 | 2.242 (2.471, 0.00) | 0.53 (0.36, 0.20) | 0.000 | 0.0611 | training (attempt 1) |
+| lag_final | 3 | 20 | 149/312 | 0 | 2.072 (2.509, 0.39) | 0.01 (0.01, 10.00) | 0.000 | 0.0685 | training (attempt 1) |
+| lag_final | 4 | 20 | 140/312 | 0 | 2.759 (3.122, 0.00) | 0.01 (0.01, 10.00) | 0.001 | 0.0447 | training (attempt 1) |
+| lag_orig | 1 | 20 | 185/312 | 0 | 0.580 (0.541, 3.05) | 0.01 (0.01, 10.00) | 0.000 | 0.0389 | training (attempt 1) |
+| lag_orig | 2 | 20 | 181/312 | 0 | 0.945 (0.592, 5.38) | 0.57 (0.04, 10.00) | 0.000 | 0.1204 | training (attempt 1) |
+| lag_orig | 3 | 20 | 182/312 | 0 | 0.658 (0.613, 1.66) | 0.01 (0.16, 3.56) | 0.000 | 0.0830 | training (attempt 1) |
+| lag_orig | 4 | 20 | 204/312 | 0 | 0.309 (0.418, 0.04) | 0.06 (0.27, 0.00) | 0.000 | 0.0488 | training (attempt 1) |
 
 Failures: {}
 
