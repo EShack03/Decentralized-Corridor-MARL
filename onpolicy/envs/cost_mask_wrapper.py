@@ -62,7 +62,7 @@ class CostMaskEnv:
     """Wraps one MultiAgentGraphEnv. Every attribute not defined here is the
     wrapped env's (spaces, world, seed, close, ...)."""
 
-    def __init__(self, env, args):
+    def __init__(self, env, args, rank=0):
         self.env = env
         self.w_near = float(getattr(args, "lag_near_weight", 0.25))
         self._warned = False
@@ -78,10 +78,22 @@ class CostMaskEnv:
         self.episode = -1                    # becomes 0 at the first reset
         need_h = self.filter_on or self.warm_episodes > 0
         need_1 = float(getattr(args, "lag_mask_coef", 0.0)) > 0.0
+        # [ES] 20 Nov (arm C, "teach"): with --lag_filter_prob p < 1 the final filter is APPLIED to a random
+        # share p of the aircraft, drawn afresh each episode (every aircraft in warm-up), but its mask is computed
+        # for every aircraft on every step, for the mask-consistency term. Per aircraft rather than per episode so
+        # the unfiltered aircraft (whose cost the constraint uses) cover all layouts in every update. p = 1: unchanged.
+        self.filter_prob = float(getattr(args, "lag_filter_prob", 1.0))
+        self.teach = self.filter_on and self.filter_prob < 1.0
+        self.warm_apply = int(getattr(args, "lag_warmup", 0))
+        self.apply = None                    # (n,) bool per aircraft, drawn at each reset
+        self._rng = np.random.default_rng([int(getattr(args, "seed", 0)), int(rank), 20112026])
         self.final = None
+        self.final_m1 = False
         if need_h and getattr(args, "lag_filter_kind", "plain") == "final":
             self._build_final(args)
             need_h = False                   # the plain filter is not built
+            if need_1:                       # mask term uses the final filter's own mask (no plain 1 s filter)
+                self.final_m1, need_1 = True, False
         if need_h or need_1:
             torch.set_num_threads(1)
             from onpolicy.algorithms.utils.cbf_gnn import CBFGNN
@@ -225,7 +237,7 @@ class CostMaskEnv:
             if not use_f:
                 return None, None, None
             mh, ns = self._final_masks(node_obs_n, adj_n)
-            return mh, ns, None
+            return mh, ns, (mh if self.final_m1 else None)
         if self.filter_h is None and self.filter_1 is None:
             return None, None, None
         ags = self._agents()
@@ -248,12 +260,13 @@ class CostMaskEnv:
                 m1 = m1[0]
         return mh, ns, m1
 
-    @staticmethod
-    def _put_masks(info_n, mh, ns, m1):
+    def _put_masks(self, info_n, mh, ns, m1):
         for i, info in enumerate(info_n):
             if mh is not None:
                 info["lag_mask"] = mh[i]
                 info["lag_nosafe"] = bool(ns[i])
+                if self.teach:
+                    info["lag_apply"] = bool(self.apply[i])  # is the mask applied to this aircraft this episode?
             if m1 is not None:
                 info["lag_safe1"] = m1[i]
 
@@ -289,6 +302,9 @@ class CostMaskEnv:
     def reset(self, *args, **kwargs):
         obs_n, agent_id_n, node_obs_n, adj_n = self.env.reset(*args, **kwargs)
         self.episode += 1
+        if self.teach:                               # this episode: filter applied to which aircraft
+            n = len(self._agents())
+            self.apply = np.ones(n, bool) if self.episode < self.warm_apply else self._rng.random(n) < self.filter_prob
         self._off = np.zeros(len(self._agents()), dtype=bool)
         if self.final is not None:
             if getattr(self.final, "cbf_sensing", None) is not None:

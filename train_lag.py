@@ -46,7 +46,16 @@ SETUPS = {
     #      policy must reach on its own
     "lag_orig": ["--lag_mode", "lagrangian", "--lag_filter", "False", "--lag_filter_kind", "final",
                  "--lag_budget_with_filter", "True", "--lag_mask_coef", "0"],
+    # [ES] 20 Nov - arm C ("teach"), from the ORIGINAL policy, aimed at a policy that flies ALONE as safely as the
+    # original + final filter: the final filter is applied to a share of the aircraft that falls stage by stage
+    # (--filter_probs, default 0.8 / 0.4 / 0), its mask is computed for every aircraft and a mask-consistency term
+    # teaches the policy to put no probability on the moves it blocks, and the Lagrangian budget is the original
+    # + final filter cost (warm-up with the filter), applied to the policy's own cost (unfiltered aircraft).
+    "lag_teach": ["--lag_mode", "lagrangian", "--lag_filter", "True", "--lag_filter_kind", "final",
+                  "--lag_mask_coef", "1.0", "--lag_aux_balanced", "True", "--lag_aux_rows", "8192"],
 }
+# share of aircraft with the filter applied, per stage, for set-ups that fade the filter out
+FILTER_PROBS = {"lag_teach": "0.8,0.4,0"}
 LAYOUTS = ["single", "sequential", "merge", "mergeseq"]
 FIRST_SCEN = {"single": "working_three_phase_graph_hidegoals",
               "sequential": "three_phase_graph_sequential_hidegoals",
@@ -101,6 +110,8 @@ def main():
     ap.add_argument("--critic_lr", default="5e-4")
     ap.add_argument("--entropy_coef", default="0.02")
     ap.add_argument("--ppo_epoch", default="10", help="PPO epochs per update (original 10)")
+    ap.add_argument("--filter_probs", default="",
+                    help="per-stage share of aircraft with the filter applied (default: FILTER_PROBS[setup], else none)")
     ap.add_argument("--start", default="", help="weights for stage 1 (default: model_weights, or model_weights_distill/seed<seed>/r4 for --setup lag_distilled)")
     ap.add_argument("--cpu", action="store_true", help="train on CPU (no GPU)")
     ap.add_argument("--smoke", action="store_true",
@@ -125,7 +136,10 @@ def main():
     scen0 = FIRST_SCEN.get(layouts[0], layouts[0])
     py = sys.executable
     prev = a.start
-    for n in stages:
+    fp = (a.filter_probs or FILTER_PROBS.get(a.setup, "")).split(",") if (a.filter_probs or a.setup in FILTER_PROBS) else []
+    if fp and len(fp) < len(stages):
+        sys.exit(f"--filter_probs needs one value per stage ({len(stages)})")
+    for si, n in enumerate(stages):
         exp = f"lag_{a.setup}_N{n}_seed{a.seed}" + ("_smoke" if a.smoke else "")
         have = done_models(scen0, exp)
         if have and not a.smoke:
@@ -144,6 +158,7 @@ def main():
                "--log_interval", "5", "--save_interval", "5",
                "--lag_enable", *SETUPS[a.setup], "--lag_scenarios", ",".join(layouts),
                "--lag_filter_horizon", str(a.horizon), "--lag_warmup", str(warm),
+               *(["--lag_filter_prob", fp[si]] if fp else []),
                *a.extra]
         if a.cpu:
             cmd += ["--cuda"]                        # store_false: turns CUDA off

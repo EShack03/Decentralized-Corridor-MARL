@@ -37,7 +37,7 @@ PY = sys.executable
 OUT = Path("run_results/18_lagrangian")
 WOUT = Path("model_weights_lag")
 SCEN0 = "working_three_phase_graph_hidegoals"          # train_lag.py files every stage under the first layout
-SLUG = {"lag_final": "lagfinal", "lag_orig": "lagorig"}
+SLUG = {"lag_final": "lagfinal", "lag_orig": "lagorig", "lag_teach": "lagteach"}
 ENV = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", GIT_TERMINAL_PROMPT="0")   # never wait for a password
 
 # ---------------------------------------------------------------- evaluation cases (as E1/E2, 17-18 Nov)
@@ -221,6 +221,8 @@ def eval_jobs(a, policies):
             add(md, sl, "NS_LGA_tanh", lay, n, seed, False); add(md, sl, "NS_LGF_tanh", lay, n, seed, True)
         for lay, n in DENSE:
             add(md, sl, "NS_LGD_tanh" if lay in ("vertiport", "ladder") else "LGD_tanh", lay, n, seed, True)
+            if a.dense_alone:                      # [ES] 20 Nov: high density with the policy alone too
+                add(md, sl, "NS_LGDA_tanh" if lay in ("vertiport", "ladder") else "LGDA_tanh", lay, n, seed, False)
     if a.references:
         md = a.model_dir
         for s in a.seeds:
@@ -271,7 +273,8 @@ def run_eval(a, policies, state):
 def file_results():
     OUT.mkdir(parents=True, exist_ok=True)
     moved = 0
-    for pre in ("LGA_tanh_", "LGF_tanh_", "LGD_tanh_", "NS_LGA_tanh_", "NS_LGF_tanh_", "NS_LGD_tanh_",
+    for pre in ("LGA_tanh_", "LGF_tanh_", "LGD_tanh_", "LGDA_tanh_", "NS_LGA_tanh_", "NS_LGF_tanh_", "NS_LGD_tanh_",
+                "NS_LGDA_tanh_",
                 "REFA_tanh_", "REFF_tanh_", "REFD_tanh_", "NS_REFA_tanh_", "NS_REFF_tanh_", "NS_REFD_tanh_"):
         for f in glob.glob(pre + "*"):
             shutil.move(f, OUT / f); moved += 1
@@ -297,7 +300,10 @@ def main():
     p.add_argument("--skip_train", action="store_true")
     p.add_argument("--push", action="store_true")
     p.add_argument("--mini", action="store_true", help="local end-to-end test: tiny evaluation queue")
+    p.add_argument("--out", default=str(OUT), help="results / status folder")
+    p.add_argument("--dense_alone", action="store_true", help="also evaluate the high-density cases without the filter")
     a = p.parse_args()
+    globals()["OUT"] = Path(a.out)
     a.arms = a.arms.split(","); a.seeds = [int(s) for s in a.seeds.split(",")]; a.stages = [int(n) for n in a.stages.split(",")]
     if not Path("train_lag.py").exists():
         sys.exit("run from the repo root")

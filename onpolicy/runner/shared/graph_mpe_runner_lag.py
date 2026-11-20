@@ -48,9 +48,13 @@ class _WorkerMasks:
 
     def masks(self, node_obs, adj, obs, agent_id):
         r = self.runner
-        m = r._pend_mask.reshape(-1, r._n_act)
-        ns = r._pend_nosafe.reshape(-1)
-        return m, ns
+        m = r._pend_mask
+        ns = r._pend_nosafe
+        if r.teach:                          # arm C: aircraft unfiltered this episode get no mask
+            off = ~r._pend_apply
+            m = m.copy(); ns = ns.copy()
+            m[off] = 1.0; ns[off] = False
+        return m.reshape(-1, r._n_act), ns.reshape(-1)
 
 
 class GMPERunnerLag(GMPERunner):
@@ -72,6 +76,11 @@ class GMPERunnerLag(GMPERunner):
             self.store["nosafe"] = np.zeros((T, E, N), bool)
         if self.use_safe1:
             self.store["safe1"] = np.ones((T, E, N, self._n_act), np.float32)
+        # [ES] 20 Nov (arm C): filter applied only to a share of the aircraft (--lag_filter_prob < 1)
+        self.teach = self.use_filter and float(getattr(a, "lag_filter_prob", 1.0)) < 1.0
+        self._pend_apply = np.ones((E, N), bool)
+        if self.teach:
+            self.store["apply"] = np.ones((T, E, N), bool)
         self.trainer.store = self.store
         self._pend_mask = np.ones((E, N, self._n_act), np.float32)
         self._pend_nosafe = np.zeros((E, N), bool)
@@ -124,9 +133,15 @@ class GMPERunnerLag(GMPERunner):
         # warm-up (budget measurement), none afterwards
         self.cbf_filter = self._adapter if on else None
         if "nosafe" in self.store:
-            self.store["nosafe"][step] = self._pend_nosafe if on else False
+            ns = self._pend_nosafe & self._pend_apply if self.teach else self._pend_nosafe
+            self.store["nosafe"][step] = ns if on else False
         if self.use_safe1:
-            self.store["safe1"][step] = self._pend_safe1
+            s1 = self._pend_safe1
+            if self.teach:                   # no mask-term target where the filter itself had no safe move
+                s1 = s1.copy(); s1[self._pend_nosafe] = 1.0
+            self.store["safe1"][step] = s1
+        if self.teach:
+            self.store["apply"][step] = self._pend_apply
         return super().collect_with_mask(step, active_agents, active_masks, finished)
 
     def insert(self, data, active_agents=None, active_masks=None, finished=None):
@@ -143,6 +158,8 @@ class GMPERunnerLag(GMPERunner):
                     self._pend_nosafe[e, i] = inf["lag_nosafe"]
                 if self.use_safe1:
                     self._pend_safe1[e, i] = inf["lag_safe1"]
+                if self.teach and "lag_apply" in inf:
+                    self._pend_apply[e, i] = inf["lag_apply"]
         self.store["cost"][t] = cost
         if self.penalty is not None:
             rewards = data[5] - (cost * self.penalty).sum(-1, keepdims=True)
@@ -173,6 +190,8 @@ class GMPERunnerLag(GMPERunner):
             self.store["nosafe"][0] = False
         if self.use_safe1:
             self.store["safe1"][0] = 1.0
+        if self.teach:
+            self.store["apply"][0] = self._pend_apply   # the next episode's draw (step 0 is never masked)
         return info
 
     def save(self):

@@ -129,6 +129,7 @@ class GR_MAPPO_Lag(GR_MAPPO):
         self.c_kl = args.lag_kl_coef
         self.c_mask = args.lag_mask_coef
         self.aux_rows = args.lag_aux_rows
+        self.aux_balanced = bool(getattr(args, "lag_aux_balanced", False))
         self.zero_fallback = args.lag_zero_fallback
         self.ref_actor = None
         if self.c_kl > 0:
@@ -231,7 +232,17 @@ class GR_MAPPO_Lag(GR_MAPPO):
         rows = np.flatnonzero(act > 0)
         if rows.size == 0:
             return 0.0, 0.0
-        idx = np.random.choice(rows, size=min(self.aux_rows, rows.size), replace=False)
+        isb = None
+        if self.aux_balanced and safe1 is not None:
+            # [ES] 20 Nov (arm C): half the rows from agent-steps where the filter blocks a move
+            blk = _cast((safe1 < 1.0).any(-1)[..., None]).reshape(-1) > 0
+            rb = np.flatnonzero((act > 0) & blk)
+            ib = np.random.choice(rb, size=min(self.aux_rows // 2, rb.size), replace=False) if rb.size else rb
+            io = np.random.choice(rows, size=min(self.aux_rows - ib.size, rows.size), replace=False)
+            idx = np.concatenate([ib, io]).astype(int)
+            isb = torch.as_tensor(blk[idx], device=self.device)
+        else:
+            idx = np.random.choice(rows, size=min(self.aux_rows, rows.size), replace=False)
         T1, E, A = buffer.masks.shape[:3]
         # row order of _cast: thread, agent, time
         e_i, rem = np.divmod(idx, A * (T1 - 1))
@@ -253,7 +264,12 @@ class GR_MAPPO_Lag(GR_MAPPO):
         if safe1 is not None and self.c_mask > 0:
             blocked = check(1.0 - safe1[sl]).to(**self.tpdv)
             p_blk = (logp.exp() * blocked).sum(-1).clamp(max=1 - 1e-6)
-            mt = -torch.log1p(-p_blk).mean()
+            if isb is None:
+                mt = -torch.log1p(-p_blk).mean()
+            elif isb.any():                  # balanced: averaged over the rows where a move is blocked
+                mt = -torch.log1p(-p_blk[isb]).mean()
+            else:
+                mt = torch.zeros((), **self.tpdv)
             loss = loss + self.c_mask * mt
             mask_v = mt.item()
         self.policy.actor_optimizer.zero_grad()
@@ -280,6 +296,14 @@ class GR_MAPPO_Lag(GR_MAPPO):
 
         # per-aircraft episode cost (one rollout = one episode)
         J = st["cost"].sum(axis=0).mean(axis=(0, 1))          # (K,)
+        # [ES] 20 Nov (arm C): after warm-up the constraint is on the policy's OWN cost, i.e. the
+        # aircraft flown without the filter this episode (all aircraft if none were)
+        unf = None
+        if "apply" in st and not warm:
+            unf = ~st["apply"][1]                               # (threads, aircraft)
+            if unf.any():
+                J = st["cost"].sum(axis=0)[unf].mean(axis=0)
+        info["lag_unfiltered_share"] = float(unf.mean()) if unf is not None else 0.0
         self.J_ema = J if self.J_ema is None else self.ema * self.J_ema + (1 - self.ema) * J
 
         cost_returns = []

@@ -62,7 +62,7 @@ def make_train_env(all_args:argparse.Namespace):
             # infos (observations, rewards and dynamics are unchanged)
             if getattr(all_args, "lag_enable", False):
                 from onpolicy.envs.cost_mask_wrapper import CostMaskEnv
-                env = CostMaskEnv(env, env_args)
+                env = CostMaskEnv(env, env_args, rank=rank)
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
@@ -235,6 +235,13 @@ def parse_args(args, parser):
                         "layouts: merge graphs have no goal nodes). -1 = automatic "
                         "(2 x num_agents when single/sequential are mixed with "
                         "merge layouts), 0 = off.")
+    # [ES] 20 Nov (arm C): filter fade-out and the final-filter mask term
+    parser.add_argument("--lag_filter_prob", type=float, default=1.0,
+                        help="Share of aircraft (drawn each episode) with the filter applied (warm-up: all); "
+                        "its mask is still computed for every aircraft for the mask term. 1 = always (unchanged).")
+    parser.add_argument("--lag_aux_balanced", type=lambda x: bool(strtobool(x)), default=False,
+                        help="Mask term on rows where the filter blocks a move: half the aux rows are drawn "
+                        "from them and the term is averaged over them (default False = unchanged).")
     parser.add_argument("--lag_zero_fallback", type=lambda x: bool(strtobool(x)),
                         default=True, help="Advantage 0 where the filter fell back.")
 
