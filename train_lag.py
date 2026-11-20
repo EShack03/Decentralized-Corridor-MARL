@@ -31,6 +31,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+# [ES] 20 Nov - v2 multiplier settings (arm B v2 and arm C): bounded symmetric PID error, integrator
+# clamping, and a budget floor of 0.05 so near-zero corridor budgets cannot pin the multiplier.
+V2 = ["--lag_err_clip", "1.0", "--lag_int_clamp", "True", "--lag_budget_floor", "0.05"]
 SETUPS = {
     "penalty":      ["--lag_mode", "penalty", "--lag_filter", "True"],
     "lagrangian":   ["--lag_mode", "lagrangian", "--lag_filter", "True"],
@@ -52,7 +55,12 @@ SETUPS = {
     # teaches the policy to put no probability on the moves it blocks, and the Lagrangian budget is the original
     # + final filter cost (warm-up with the filter), applied to the policy's own cost (unfiltered aircraft).
     "lag_teach": ["--lag_mode", "lagrangian", "--lag_filter", "True", "--lag_filter_kind", "final",
-                  "--lag_mask_coef", "1.0", "--lag_aux_balanced", "True", "--lag_aux_rows", "8192"],
+                  "--lag_mask_coef", "1.0", "--lag_aux_balanced", "True", "--lag_aux_rows", "8192",
+                  *V2],
+    # [ES] 20 Nov - arm B v2: arm B (lag_orig) with the v2 multiplier settings, identical to arm C except
+    # for the teaching (no filter in the loop, no mask term), so B v2 vs C isolates the filter as teacher.
+    "lag_orig2": ["--lag_mode", "lagrangian", "--lag_filter", "False", "--lag_filter_kind", "final",
+                  "--lag_budget_with_filter", "True", "--lag_mask_coef", "0", *V2],
 }
 # share of aircraft with the filter applied, per stage, for set-ups that fade the filter out
 FILTER_PROBS = {"lag_teach": "0.8,0.4,0"}

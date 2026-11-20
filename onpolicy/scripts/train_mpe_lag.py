@@ -209,6 +209,10 @@ def parse_args(args, parser):
                         help="Automatic separation budget = this x starting cost.")
     parser.add_argument("--lag_budget_factor_corr", type=float, default=0.7,
                         help="Automatic corridor budget = this x starting cost.")
+    parser.add_argument("--lag_err_clip", type=float, default=0.0,
+                        help="[ES] v2 anti-windup: clip the normalised PID error to [-c, c] (0 = off, unchanged).")
+    parser.add_argument("--lag_int_clamp", type=lambda x: bool(strtobool(x)), default=False,
+                        help="[ES] v2 anti-windup: keep Ki * integral within [0, lambda_max] (default False = unchanged).")
     parser.add_argument("--lag_budget_floor", type=float, default=0.01,
                         help="Smallest budget used in the normalised error.")
     parser.add_argument("--lag_kp", type=float, default=1.0)

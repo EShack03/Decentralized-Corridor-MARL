@@ -102,6 +102,14 @@ class GR_MAPPO_Lag(GR_MAPPO):
 
         # ---- PID multipliers ----
         self.kp, self.ki, self.kd = args.lag_kp, args.lag_ki, args.lag_kd
+        # [ES] 20 Nov (v2): anti-windup. The error here is normalised by the budget (so the two costs share
+        # one gain setting), unlike Stooke et al. (2020), who use the absolute error J - d. With small budgets
+        # that makes overshoots huge (e = J/d - 1 up to ~50) while undershoots are bounded at -1, so the
+        # integral winds up and the multiplier stays at its cap long after the cost is under budget.
+        # --lag_err_clip c > 0 clips e to [-c, c] (symmetric, bounded); --lag_int_clamp keeps Ki * I within
+        # [0, lam_max] (standard integrator clamping). Defaults (0 / False) = unchanged.
+        self.err_clip = float(getattr(args, "lag_err_clip", 0.0))
+        self.int_clamp = bool(getattr(args, "lag_int_clamp", False))
         self.lam_max = args.lag_lambda_max
         self.ema = args.lag_cost_ema
         self.lam = np.zeros(self.K)
@@ -206,7 +214,11 @@ class GR_MAPPO_Lag(GR_MAPPO):
     def _pid(self, J):
         """One PID step on the normalised error; returns the new multipliers."""
         e = J / np.maximum(self.budget, self.budget_floor) - 1.0
+        if self.err_clip > 0:
+            e = np.clip(e, -self.err_clip, self.err_clip)
         self.I = np.maximum(0.0, self.I + e)
+        if self.int_clamp and self.ki > 0:
+            self.I = np.minimum(self.I, self.lam_max / self.ki)
         d = np.maximum(0.0, e - self.e_prev)
         self.e_prev = e
         self.lam = np.clip(self.kp * e + self.ki * self.I + self.kd * d, 0.0, self.lam_max)

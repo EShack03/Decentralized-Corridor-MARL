@@ -37,7 +37,7 @@ PY = sys.executable
 OUT = Path("run_results/18_lagrangian")
 WOUT = Path("model_weights_lag")
 SCEN0 = "working_three_phase_graph_hidegoals"          # train_lag.py files every stage under the first layout
-SLUG = {"lag_final": "lagfinal", "lag_orig": "lagorig", "lag_teach": "lagteach"}
+SLUG = {"lag_final": "lagfinal", "lag_orig": "lagorig", "lag_teach": "lagteach", "lag_orig2": "lagorig2"}
 ENV = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1", GIT_TERMINAL_PROMPT="0")   # never wait for a password
 
 # ---------------------------------------------------------------- evaluation cases (as E1/E2, 17-18 Nov)
