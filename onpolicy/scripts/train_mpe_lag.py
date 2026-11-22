@@ -219,6 +219,10 @@ def parse_args(args, parser):
     parser.add_argument("--lag_ki", type=float, default=0.1)
     parser.add_argument("--lag_kd", type=float, default=0.5)
     parser.add_argument("--lag_lambda_max", type=float, default=10.0)
+    parser.add_argument("--lag_lambda_max_corr", type=float, default=-1.0,
+                        help="[ES] v2b: cap on the corridor multiplier (< 0 = same as --lag_lambda_max, unchanged).")
+    parser.add_argument("--lag_budget_floor_corr", type=float, default=-1.0,
+                        help="[ES] v2b: floor on the corridor budget (< 0 = same as --lag_budget_floor, unchanged).")
     parser.add_argument("--lag_cost_ema", type=float, default=0.5,
                         help="EMA weight on the previous cost estimate (PID input).")
     parser.add_argument("--lag_penalty_sep", type=float, default=10.0,

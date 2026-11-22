@@ -31,9 +31,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-# [ES] 20 Nov - v2 multiplier settings (arm B v2 and arm C): bounded symmetric PID error, integrator
-# clamping, and a budget floor of 0.05 so near-zero corridor budgets cannot pin the multiplier.
-V2 = ["--lag_err_clip", "1.0", "--lag_int_clamp", "True", "--lag_budget_floor", "0.05"]
+# [ES] 20 / 22 Nov - v2 settings (arm B v2 and arm C), from the arm B v1 results (both failed seeds ended with
+# the corridor multiplier pinned at its cap): bounded symmetric PID error and integrator clamping (anti-windup);
+# the corridor is a guard, not a target - budget 1.0 x the starting cost (v1: 0.7), floor 0.1 aircraft-seconds
+# off the corridor per aircraft per episode (= 0.05 % of a 200 s episode; v1: 0.01), multiplier cap 3 (v1: 10).
+# Separation unchanged from v1 (factor 1.0, floor 0.01, cap 10).
+V2 = ["--lag_err_clip", "1.0", "--lag_int_clamp", "True", "--lag_budget_factor_corr", "1.0",
+      "--lag_budget_floor_corr", "0.1", "--lag_lambda_max_corr", "3.0"]
 SETUPS = {
     "penalty":      ["--lag_mode", "penalty", "--lag_filter", "True"],
     "lagrangian":   ["--lag_mode", "lagrangian", "--lag_filter", "True"],

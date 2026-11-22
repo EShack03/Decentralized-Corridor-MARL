@@ -111,6 +111,10 @@ class GR_MAPPO_Lag(GR_MAPPO):
         self.err_clip = float(getattr(args, "lag_err_clip", 0.0))
         self.int_clamp = bool(getattr(args, "lag_int_clamp", False))
         self.lam_max = args.lag_lambda_max
+        # [ES] 22 Nov (v2b): per-cost cap and floor for the corridor guard (separation, corridor). A
+        # negative value = same as the shared setting (unchanged).
+        lmc = float(getattr(args, "lag_lambda_max_corr", -1.0))
+        self.lam_max = np.array([self.lam_max, self.lam_max if lmc < 0 else lmc], float)
         self.ema = args.lag_cost_ema
         self.lam = np.zeros(self.K)
         self.I = np.zeros(self.K)
@@ -120,6 +124,8 @@ class GR_MAPPO_Lag(GR_MAPPO):
         self.budget_factor = np.array([args.lag_budget_factor_sep,
                                        args.lag_budget_factor_corr], float)
         self.budget_floor = args.lag_budget_floor
+        bfc = float(getattr(args, "lag_budget_floor_corr", -1.0))
+        self.budget_floor = np.array([self.budget_floor, self.budget_floor if bfc < 0 else bfc], float)
         # [ES] 18 Nov: curriculum stages 2+ start from an earlier stage's weights (their folder has
         # lag_state.pt) and re-measure the budget from THAT policy at the new density. A factor < 1
         # would then compound (corridor 0.7 -> 0.49 -> 0.34 of the original by stage 3), so later
