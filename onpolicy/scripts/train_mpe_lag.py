@@ -247,6 +247,11 @@ def parse_args(args, parser):
     parser.add_argument("--lag_filter_prob", type=float, default=1.0,
                         help="Share of aircraft (drawn each episode) with the filter applied (warm-up: all); "
                         "its mask is still computed for every aircraft for the mask term. 1 = always (unchanged).")
+    parser.add_argument("--lag_teach_target", type=str, default="blocked", choices=["blocked", "ref_masked"],
+                        help="[ES] arm C v2: mask-term target. blocked = -log(1-p_blocked) (default, unchanged); "
+                        "ref_masked = KL to the stage-start policy restricted to the filter's allowed moves.")
+    parser.add_argument("--lag_corr_no_loosen", type=lambda x: bool(strtobool(x)), default=False,
+                        help="[ES] arm C v2: a later stage's corridor budget may not exceed the previous stage's.")
     parser.add_argument("--lag_aux_balanced", type=lambda x: bool(strtobool(x)), default=False,
                         help="Mask term on rows where the filter blocks a move: half the aux rows are drawn "
                         "from them and the term is averaged over them (default False = unchanged).")

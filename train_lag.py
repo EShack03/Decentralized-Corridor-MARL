@@ -61,13 +61,19 @@ SETUPS = {
     "lag_teach": ["--lag_mode", "lagrangian", "--lag_filter", "True", "--lag_filter_kind", "final",
                   "--lag_mask_coef", "1.0", "--lag_aux_balanced", "True", "--lag_aux_rows", "8192",
                   *V2],
+    # [ES] 24 Nov - arm C v2: arm C with the teaching target fixed (KL to the stage-start policy restricted to the
+    # moves the filter allows, instead of -log(1 - p_blocked)) and a corridor budget that never loosens between
+    # stages. Arm C v1 drifted out of its corridors (KL 0.55-0.76, 20-35 s off the corridor per aircraft-episode).
+    "lag_teach2": ["--lag_mode", "lagrangian", "--lag_filter", "True", "--lag_filter_kind", "final",
+                   "--lag_mask_coef", "1.0", "--lag_aux_balanced", "True", "--lag_aux_rows", "8192",
+                   "--lag_teach_target", "ref_masked", "--lag_corr_no_loosen", "True", *V2],
     # [ES] 20 Nov - arm B v2: arm B (lag_orig) with the v2 multiplier settings, identical to arm C except
     # for the teaching (no filter in the loop, no mask term), so B v2 vs C isolates the filter as teacher.
     "lag_orig2": ["--lag_mode", "lagrangian", "--lag_filter", "False", "--lag_filter_kind", "final",
                   "--lag_budget_with_filter", "True", "--lag_mask_coef", "0", *V2],
 }
 # share of aircraft with the filter applied, per stage, for set-ups that fade the filter out
-FILTER_PROBS = {"lag_teach": "0.8,0.4,0"}
+FILTER_PROBS = {"lag_teach": "0.8,0.4,0", "lag_teach2": "0.8,0.4,0"}
 LAYOUTS = ["single", "sequential", "merge", "mergeseq"]
 FIRST_SCEN = {"single": "working_three_phase_graph_hidegoals",
               "sequential": "three_phase_graph_sequential_hidegoals",

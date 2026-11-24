@@ -131,9 +131,19 @@ class GR_MAPPO_Lag(GR_MAPPO):
         # would then compound (corridor 0.7 -> 0.49 -> 0.34 of the original by stage 3), so later
         # stages use factor 1.0: hold what the earlier stage achieved, at the higher density.
         md = getattr(args, "model_dir", None)
+        self.prev_budget = None
         if md and os.path.exists(os.path.join(str(md), "lag_state.pt")):
             self.budget_factor = np.ones_like(self.budget_factor)
             print("[lag] later curriculum stage (start weights have lag_state.pt): budget factors 1.0")
+            # [ES] 24 Nov (arm C v2): --lag_corr_no_loosen keeps a later stage's corridor budget at or below
+            # the previous stage's, so a policy that drifted out of its corridors cannot re-set its own target.
+            if bool(getattr(args, "lag_corr_no_loosen", False)):
+                try:
+                    self.prev_budget = np.asarray(torch.load(os.path.join(str(md), "lag_state.pt"),
+                                                             map_location="cpu")["budget"], float)
+                    print(f"[lag] corridor budget will not exceed the previous stage's ({self.prev_budget[1]:.3f})")
+                except Exception as ex:                      # noqa: BLE001
+                    print(f"[lag] could not read the previous budget ({ex}); no cap")
         self._auto = self.budget <= 0           # <= 0 means: measure it in warm-up
         self._J_warm = []
         if self.mode == "lagrangian" and self._auto.any() and self.warmup < 1:
@@ -144,6 +154,12 @@ class GR_MAPPO_Lag(GR_MAPPO):
         self.c_mask = args.lag_mask_coef
         self.aux_rows = args.lag_aux_rows
         self.aux_balanced = bool(getattr(args, "lag_aux_balanced", False))
+        # [ES] 24 Nov (arm C v2): teaching target. "blocked" (arm C v1, default): -log(1 - p_blocked), which
+        # moves probability off the blocked moves but says nothing about where it goes (v1 drifted to turning
+        # out of the corridors, KL 0.55-0.76). "ref_masked": KL(p_T || pi) with p_T = the stage-start policy's
+        # distribution restricted to the moves the filter allows (as in the distillation that kept the original's
+        # preferences), on the agent-steps where the filter blocks a move.
+        self.teach_target = str(getattr(args, "lag_teach_target", "blocked"))
         self.zero_fallback = args.lag_zero_fallback
         self.ref_actor = None
         if self.c_kl > 0:
@@ -282,7 +298,17 @@ class GR_MAPPO_Lag(GR_MAPPO):
         if safe1 is not None and self.c_mask > 0:
             blocked = check(1.0 - safe1[sl]).to(**self.tpdv)
             p_blk = (logp.exp() * blocked).sum(-1).clamp(max=1 - 1e-6)
-            if isb is None:
+            if self.teach_target == "ref_masked":
+                with torch.no_grad():
+                    allowed = blocked < 0.5
+                    lt = self._dist(self.ref_actor, *args).logits.masked_fill(~allowed, float("-inf"))
+                    lpt = torch.log_softmax(lt, -1)
+                    pt = lpt.exp()
+                    lpt = torch.where(allowed, lpt, torch.zeros_like(lpt))
+                klt = (pt * (lpt - logp)).sum(-1)
+                rowb = blocked.sum(-1) > 0 if isb is None else isb
+                mt = klt[rowb].mean() if rowb.any() else torch.zeros((), **self.tpdv)
+            elif isb is None:
                 mt = -torch.log1p(-p_blk).mean()
             elif isb.any():                  # balanced: averaged over the rows where a move is blocked
                 mt = -torch.log1p(-p_blk[isb]).mean()
@@ -338,6 +364,8 @@ class GR_MAPPO_Lag(GR_MAPPO):
                     self.budget = np.where(self._auto, np.maximum(
                         self.budget_factor * np.mean(self._J_warm, axis=0),
                         self.budget_floor), self.budget)
+                    if self.prev_budget is not None:   # [ES] arm C v2: corridor budget never loosens
+                        self.budget[1] = min(self.budget[1], max(self.prev_budget[1], self.budget_floor[1]))
                 e = np.zeros(self.K)
             else:
                 e = self._pid(self.J_ema)
