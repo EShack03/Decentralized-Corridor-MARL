@@ -1,13 +1,13 @@
-# Constrained training - status (Wed 25 Nov 2026 14:40 server time)
+# Constrained training - status (Wed 25 Nov 2026 20:40 server time)
 
 Phase: **training**. Started Tue 24 Nov 02:40. Stages [10, 15, 20], 1000000 steps per stage (~312 updates), 16 workers, episodes 200 s, PPO epochs 4.
 
 | Arm | Seed | Stage | Updates in stage | Warm-up | J sep (budget, lambda) | J corr (budget, lambda) | Fallback | KL | State |
 |---|---|---|---|---|---|---|---|---|---|
-| lag_orig2 | 1 | 20 | 66/312 | 0 | 0.855 (0.384, 3.07) | 0.14 (0.18, 2.05) | 0.000 | 0.1166 | training (attempt 1) |
-| lag_orig2 | 2 | 20 | 73/312 | 0 | 0.653 (0.690, 1.06) | 0.03 (0.22, 2.20) | 0.000 | 0.0586 | training (attempt 1) |
-| lag_orig2 | 3 | 20 | 71/312 | 0 | 0.441 (0.474, 1.87) | 0.06 (0.10, 2.98) | 0.000 | 0.1032 | training (attempt 1) |
-| lag_orig2 | 4 | 20 | 81/312 | 0 | 0.202 (0.367, 4.54) | 0.24 (0.10, 3.00) | 0.000 | 0.1248 | training (attempt 1) |
+| lag_orig2 | 1 | 20 | 118/312 | 0 | 0.272 (0.384, 1.92) | 0.48 (0.18, 3.00) | 0.000 | 0.1192 | training (attempt 1) |
+| lag_orig2 | 2 | 20 | 121/312 | 0 | 0.686 (0.690, 0.37) | 0.03 (0.22, 1.30) | 0.000 | 0.0539 | training (attempt 1) |
+| lag_orig2 | 3 | 20 | 122/312 | 0 | 0.605 (0.474, 1.44) | 0.01 (0.10, 1.52) | 0.000 | 0.0936 | training (attempt 1) |
+| lag_orig2 | 4 | 20 | 134/312 | 0 | 0.287 (0.367, 5.42) | 0.88 (0.10, 3.00) | 0.000 | 0.1228 | training (attempt 1) |
 | lag_teach | 1 | 15 | 0/312 | | | | | | abandoned |
 | lag_teach | 2 | 15 | 0/312 | | | | | | abandoned |
 | lag_teach | 3 | 15 | 0/312 | | | | | | abandoned |
