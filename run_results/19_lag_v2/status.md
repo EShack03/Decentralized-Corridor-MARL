@@ -1,6 +1,6 @@
-# Constrained training - status (Thu 26 Nov 2026 17:09 server time)
+# Constrained training - status (Thu 26 Nov 2026 20:40 server time)
 
-Phase: **training done, evaluation starting**. Started Tue 24 Nov 02:40. Stages [10, 15, 20], 1000000 steps per stage (~312 updates), 16 workers, episodes 200 s, PPO epochs 4.
+Phase: **evaluation (272 runs)**. Started Tue 24 Nov 02:40. Stages [10, 15, 20], 1000000 steps per stage (~312 updates), 16 workers, episodes 200 s, PPO epochs 4.
 
 | Arm | Seed | Stage | Updates in stage | Warm-up | J sep (budget, lambda) | J corr (budget, lambda) | Fallback | KL | State |
 |---|---|---|---|---|---|---|---|---|---|
