@@ -1,6 +1,6 @@
-# Constrained training - status (Fri 27 Nov 2026 02:40 server time)
+# Constrained training - status (Fri 27 Nov 2026 05:48 server time)
 
-Phase: **evaluation (272 runs)**. Started Tue 24 Nov 02:40. Stages [10, 15, 20], 1000000 steps per stage (~312 updates), 16 workers, episodes 200 s, PPO epochs 4.
+Phase: **DONE**. Started Tue 24 Nov 02:40. Stages [10, 15, 20], 1000000 steps per stage (~312 updates), 16 workers, episodes 200 s, PPO epochs 4.
 
 | Arm | Seed | Stage | Updates in stage | Warm-up | J sep (budget, lambda) | J corr (budget, lambda) | Fallback | KL | State |
 |---|---|---|---|---|---|---|---|---|---|
@@ -15,4 +15,4 @@ Phase: **evaluation (272 runs)**. Started Tue 24 Nov 02:40. Stages [10, 15, 20],
 
 Failures: {"lag_teach/3": "attempt 2 failed at 24 Nov 16:32 (see holiday_train_lag_teach_seed3.log)", "lag_teach/1": "attempt 2 failed at 24 Nov 16:32 (see holiday_train_lag_teach_seed1.log)", "lag_teach/4": "attempt 2 failed at 24 Nov 16:32 (see holiday_train_lag_teach_seed4.log)", "lag_teach/2": "attempt 2 failed at 24 Nov 16:32 (see holiday_train_lag_teach_seed2.log)"}
 
-
+Evaluation: 544 result files filed in run_results/19_lag_v2; failed evaluation runs: 0.
