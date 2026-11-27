@@ -1,4 +1,4 @@
-# Constrained training - status (Thu 26 Nov 2026 20:40 server time)
+# Constrained training - status (Fri 27 Nov 2026 02:40 server time)
 
 Phase: **evaluation (272 runs)**. Started Tue 24 Nov 02:40. Stages [10, 15, 20], 1000000 steps per stage (~312 updates), 16 workers, episodes 200 s, PPO epochs 4.
 
